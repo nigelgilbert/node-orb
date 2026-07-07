@@ -27,8 +27,16 @@ if (import.meta.main) {
   });
 
   // `docker stop` / compose send SIGTERM; finish in-flight responses and go.
-  process.on("SIGTERM", () => {
-    server.close(() => process.exit(0));
+  // `once`: a second SIGTERM falls through to the default handler (force-quit)
+  // instead of re-running close.
+  process.once("SIGTERM", () => {
+    server.close((err) => {
+      if (err) {
+        console.error("error during shutdown:", err);
+        process.exit(1);
+      }
+      process.exit(0);
+    });
   });
 }
 
