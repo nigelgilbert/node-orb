@@ -28,10 +28,11 @@ say "   watching src/ — edits reload automatically"
 
 # PORT is pinned to 3000 in-container so it always matches the published
 # mapping (compose pins it the same way); pick the host side with HOST_PORT.
+# The pin sits after "$@" so pass-through args can't desync it.
 exec docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
   --name "${PROJECT}-run-$$" \
   -p "${HOST_PORT:-3000}:3000" \
   ${env_args[@]+"${env_args[@]}"} \
-  -e PORT=3000 \
   "$@" \
+  -e PORT=3000 \
   "$IMAGE" node --watch src/index.ts
