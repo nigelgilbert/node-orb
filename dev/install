@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# dev/install — lockfile-only install (npm ci) in a throwaway container.
+# Network: on (registry). Scripts: ignored (.npmrc). Env: none (HOME=/tmp).
+source "$(dirname "$0")/_lib.sh"
+
+posture "📦 installing" "network: on" "scripts: ignored" "env: none" "user: node"
+say "   image: $IMAGE"
+say "   cache: volume '$CACHE_VOLUME' → /tmp/.npm"
+
+ensure_cache_volume
+
+start=$SECONDS
+docker run "${BASE_ARGS[@]}" \
+  --name "${PROJECT}-install-$$" \
+  -v "$CACHE_VOLUME:/tmp/.npm" \
+  "$IMAGE" npm ci
+
+ok "installed in $((SECONDS - start))s — node_modules/ ready. Next: ./dev/run"

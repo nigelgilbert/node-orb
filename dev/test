@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# dev/test — run the test suite in a throwaway container.
+# Network: OFF by default (blocks require-time exfil); --net opts in.
+# Env: none (HOME=/tmp). Extra args after --net pass through to docker run.
+source "$(dirname "$0")/_lib.sh"
+
+net_args=(--network none); net_posture="network: OFF"
+if [ "${1:-}" = "--net" ]; then
+  shift
+  net_args=(); net_posture="network: ON (--net)"
+fi
+
+posture "🧪 testing" "$net_posture" "env: none" "user: node"
+
+docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
+  --name "${PROJECT}-test-$$" \
+  ${net_args[@]+"${net_args[@]}"} \
+  "$@" \
+  "$IMAGE" npm test
+
+ok "tests passed ($net_posture)"

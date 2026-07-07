@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# dev/shell — interactive shell in a throwaway container.
+# Network: OFF by default; --net opts in (the documented path for adding
+# packages: ./dev/shell --net, then `npm install <pkg>` — exact pins and
+# ignore-scripts come from the committed .npmrc).
+# Env: none (HOME=/tmp). Cache volume mounted so installs stay fast.
+source "$(dirname "$0")/_lib.sh"
+
+net_args=(--network none); net_posture="network: OFF"
+if [ "${1:-}" = "--net" ]; then
+  shift
+  net_args=(); net_posture="network: ON (--net)"
+fi
+
+posture "🐚 shell" "$net_posture" "env: none" "user: node" "exit leaves nothing behind"
+[ "$net_posture" = "network: OFF" ] && say "   need npm? re-run as: ./dev/shell --net"
+
+ensure_cache_volume
+
+docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
+  --name "${PROJECT}-shell-$$" \
+  -v "$CACHE_VOLUME:/tmp/.npm" \
+  ${net_args[@]+"${net_args[@]}"} \
+  "$@" \
+  "$IMAGE" bash
+
+ok "shell closed — container removed"

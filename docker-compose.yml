@@ -1,0 +1,70 @@
+# Production compose — hardened per HARDENING.md §6.
+# Build/run: docker compose build && docker compose up
+# The base-image digest comes from .env (NODE_IMAGE=…), auto-loaded by compose.
+# Secrets come from ~/.config/<this-directory-name>/env — same file ./dev/run
+# uses; missing is tolerated (required: false).
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:?NODE_IMAGE missing — is the .env pin file present?}
+    env_file:
+      - path: ${HOME}/.config/${COMPOSE_PROJECT_NAME}/env
+        required: false
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    # --- hardening: the app gets a read-only world and no privileges -------
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    restart: unless-stopped
+    # To force all egress through the proxy sidecar below, move `app` onto the
+    # internal network (uncomment) and teach the app to honor https_proxy:
+    # either set NODE_USE_ENV_PROXY=1 (zero code, covers global fetch) or use
+    # undici's EnvHttpProxyAgent as global dispatcher (covers SDKs too).
+    # networks: [internal]
+    # environment:
+    #   NODE_USE_ENV_PROXY: 1
+    #   https_proxy: http://proxy:8888
+    #   http_proxy: http://proxy:8888
+
+# --- optional egress-allowlist sidecar (OFF by default) ----------------------
+# Enable when this project holds secrets worth guarding: uncomment the proxy
+# service and the networks block, plus the app's `networks`/`environment`
+# lines above. `internal: true` means the app has NO direct route out — the
+# tinyproxy allowlist becomes the only door (HARDENING.md §2).
+#
+#   proxy:
+#     image: kalaksi/tinyproxy:latest   # pin a digest before relying on it
+#     networks: [internal, egress]
+#     read_only: true
+#     tmpfs: [/tmp]
+#     cap_drop: [ALL]
+#     security_opt: [no-new-privileges:true]
+#     pids_limit: 64
+#     mem_limit: 128m
+#     restart: unless-stopped
+#     volumes:
+#       - ./proxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
+#       - ./proxy/filter:/etc/tinyproxy/filter:ro
+#     healthcheck:
+#       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8888"]
+#       interval: 30s
+#       timeout: 5s
+#       retries: 3
+#
+# The proxy config ships in ./proxy/ — edit proxy/filter (one domain glob per
+# line) to allowlist only what the app truly needs.
+#
+# networks:
+#   internal:
+#     internal: true   # no direct egress for anything on this network
+#   egress: {}

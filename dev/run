@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# dev/run — foreground dev server with reload (node --watch, native TS).
+# Network: on. Env: ~/.config/<project>/env via --env-file (run only).
+# Extra args pass through to docker run, e.g.: ./dev/run -p 3000:3000
+source "$(dirname "$0")/_lib.sh"
+
+env_args=()
+if [ -f "$ENV_FILE" ]; then
+  env_args=(--env-file "$ENV_FILE")
+  env_posture="env: $ENV_FILE"
+else
+  env_posture="env: none"
+fi
+
+posture "🚀 running" "network: on" "$env_posture" "user: node" "Ctrl-C stops & removes"
+[ -f "$ENV_FILE" ] || warn "no env file at $ENV_FILE — starting without secrets (create it if the app needs any)"
+say "   watching src/ — edits reload automatically"
+
+exec docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
+  --name "${PROJECT}-run-$$" \
+  ${env_args[@]+"${env_args[@]}"} \
+  "$@" \
+  "$IMAGE" node --watch src/index.ts

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# dev/update — regenerate the lockfile with a 7-day cooldown (HARDENING.md §4):
+# npm's --before makes versions published in the last week structurally
+# unresolvable, so a freshly-poisoned release can't reach us.
+# Network: on (registry). Scripts: ignored. Env: none (HOME=/tmp).
+source "$(dirname "$0")/_lib.sh"
+
+# BSD (macOS) date first, GNU date as fallback.
+BEFORE="$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+
+posture "🔄 updating lockfile" "network: on" "scripts: ignored" "env: none" "cooldown: --before=$BEFORE"
+
+[ -f package-lock.json ] || die "no package-lock.json to update — run ./dev/install first?"
+
+ensure_cache_volume
+
+docker run "${BASE_ARGS[@]}" \
+  --name "${PROJECT}-update-$$" \
+  -v "$CACHE_VOLUME:/tmp/.npm" \
+  "$IMAGE" bash -c '
+    set -euo pipefail
+    cp package-lock.json /tmp/lock-before.json
+    rm package-lock.json   # full re-resolve: satisfied-but-stale ranges must move too
+    npm install --package-lock-only --before="'"$BEFORE"'" >/dev/null
+    node -e "
+      const read = (p) => JSON.parse(require(\"fs\").readFileSync(p, \"utf8\"));
+      const before = read(\"/tmp/lock-before.json\").packages ?? {};
+      const after = read(\"package-lock.json\").packages ?? {};
+      let changed = 0;
+      for (const [path, meta] of Object.entries(after)) {
+        if (!path) continue;
+        const name = path.replace(/^.*node_modules\//, \"\");
+        const old = before[path]?.version;
+        if (old !== meta.version) {
+          changed++;
+          console.log(\`   📦 \${name}: \${old ?? \"(new)\"} → \${meta.version}\`);
+        }
+      }
+      for (const path of Object.keys(before)) {
+        if (path && !(path in after)) {
+          console.log(\`   🗑  \${path.replace(/^.*node_modules\//, \"\")}: \${before[path].version} → (removed)\`);
+          changed++;
+        }
+      }
+      if (!changed) console.log(\"   nothing changed — lockfile already at the freshest allowed versions\");
+    "
+  '
+
+ok "lockfile updated (cooldown honored) — run ./dev/install to apply it"

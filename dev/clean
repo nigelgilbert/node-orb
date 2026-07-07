@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# dev/clean — reset the project workspace.
+# Default: delete node_modules/ + remove stray project containers. Instant.
+# --all: also drop the npm cache volume and re-pull the pinned base image.
+source "$(dirname "$0")/_lib.sh"
+
+all=false
+[ "${1:-}" = "--all" ] && all=true
+
+if $all; then
+  posture "🧹 cleaning (--all)" "node_modules" "project containers" "cache volume" "re-pull base image"
+else
+  posture "🧹 cleaning" "node_modules" "project containers" "cache volume kept (use --all)"
+fi
+
+found_anything=false
+
+if [ -d "$REPO_DIR/node_modules" ]; then
+  rm -rf "$REPO_DIR/node_modules"
+  ok "removed node_modules/"
+  found_anything=true
+else
+  say "   node_modules/ — nothing to remove"
+fi
+
+containers="$(docker ps -aq --filter "label=$LABEL")"
+if [ -n "$containers" ]; then
+  # shellcheck disable=SC2086
+  docker rm -f $containers >/dev/null
+  ok "removed $(echo "$containers" | wc -l | tr -d ' ') stray project container(s)"
+  found_anything=true
+else
+  say "   stray containers — none found"
+fi
+
+if $all; then
+  if docker volume inspect "$CACHE_VOLUME" >/dev/null 2>&1; then
+    docker volume rm "$CACHE_VOLUME" >/dev/null
+    ok "dropped npm cache volume '$CACHE_VOLUME'"
+    found_anything=true
+  else
+    say "   cache volume '$CACHE_VOLUME' — none found"
+  fi
+  say "   re-pulling pinned base image…"
+  docker pull -q "$IMAGE" >/dev/null
+  ok "base image fresh: $IMAGE"
+  found_anything=true
+fi
+
+if $found_anything; then
+  ok "clean — next: ./dev/install"
+else
+  ok "nothing to clean — already spotless ✨"
+fi

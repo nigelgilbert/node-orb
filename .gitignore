@@ -1,0 +1,5 @@
+# NOTE: .env is committed on purpose — it holds only the base-image digest pin
+# (NODE_IMAGE=…), never secrets. Secrets live in ~/.config/<project-dir>/env.
+node_modules/
+dist/
+*.log

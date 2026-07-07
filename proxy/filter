@@ -1,0 +1,4 @@
+# Egress allowlist — one fnmatch domain glob per line. Keep it minimal.
+# Placeholders; replace with what THIS project's app actually calls.
+api.anthropic.com
+*.discord.com
