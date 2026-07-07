@@ -3,7 +3,7 @@
 A clean, fun, **hardened** Node 24 + TypeScript dev-environment template for
 Docker/OrbStack on macOS. Copy it, rename it, and every supply-chain rule from
 [HARDENING.md](HARDENING.md) is already in force — no host node/npm needed,
-ever. Design rationale lives in [PLAN.md](PLAN.md).
+ever. Threat model and design rationale live in [HARDENING.md](HARDENING.md).
 
 ## 60-second quickstart
 
@@ -81,8 +81,10 @@ npm install <pkg>      # exact pin + no scripts, via the committed .npmrc
 exit
 ```
 
-Then commit `package.json` + `package-lock.json`. (Fresh adds skip the 7-day
-cooldown by design — see PLAN.md decision 9.)
+Then commit `package.json` + `package-lock.json`. (Fresh adds deliberately skip
+the 7-day cooldown: adding a package is a conscious, manual act in an
+interactive shell — the cooldown exists to gate the *automated* bulk update
+path in `./dev/update`.)
 
 ## Production
 
