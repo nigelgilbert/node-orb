@@ -20,10 +20,11 @@ docker run "${BASE_ARGS[@]}" \
   "$IMAGE" bash -c '
     set -euo pipefail
     cp package-lock.json /tmp/lock-before.json
-    # The backup lives in container /tmp, the original on the bind mount — if
-    # the re-resolve fails, put the original back before this container (and
-    # its /tmp) evaporate, or the repo loses its lockfile.
-    trap "[ -f package-lock.json ] || cp /tmp/lock-before.json package-lock.json" EXIT
+    # The backup lives in container /tmp, the original on the bind mount — on
+    # ANY failure (missing OR partially-written lockfile), put the original
+    # back before this container (and its /tmp) evaporate. \$? defers the
+    # status check to trap-execution time.
+    trap "[ \$? -eq 0 ] || cp /tmp/lock-before.json package-lock.json" EXIT
     rm package-lock.json   # full re-resolve: satisfied-but-stale ranges must move too
     npm install --package-lock-only --before="'"$BEFORE"'" >/dev/null
     node -e "
