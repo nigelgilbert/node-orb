@@ -7,17 +7,18 @@
 
 ## Verified facts (grounding)
 
-- Only two deps have install scripts: `esbuild` (works without it when the
-  platform package is present) and `fsevents` (macOS-only, skipped in Linux).
-  `--ignore-scripts` is therefore free for this tree.
-- No node/npm/npx/pnpm/yarn/pm2 exists on the host Mac; `node_modules` holds
-  only `@esbuild/linux-arm64` — all installs already happen in containers.
-- The only harvestable host credential is `~/.config/gh/hosts.yml` (gh CLI
-  token). Unreachable as long as install containers never mount `$HOME`.
-- No runtime code invokes `scripts/refresh-oui.sh`; `data/oui.tsv` is
-  generated out-of-band and only read at startup → read-only rootfs is viable.
-  (Today's image doesn't even COPY `data/` — in-container vendor lookups run
-  on the fallback. Bake `oui.tsv` into the image while we're in there.)
+- The template ships zero runtime deps and two dev deps (`typescript`,
+  `@types/node`), neither of which has an install script —
+  `--ignore-scripts` is therefore free for this tree. Re-verify when adding
+  deps that need native builds (`npm rebuild <pkg>` is the deliberate escape
+  hatch, decision 3).
+- No node/npm/npx/pnpm/yarn/pm2 exists on the host Mac — all installs happen
+  in containers.
+- The canonical harvestable host credential is `~/.config/gh/hosts.yml`
+  (gh CLI token). Unreachable as long as install containers never mount
+  `$HOME`.
+- The app only reads config at startup and writes nothing → read-only rootfs
+  (+ tmpfs `/tmp`) is viable.
 
 ## Decisions
 
@@ -45,15 +46,15 @@
    exact pins extend protection to lockfile-regeneration paths.
 
 5. **Multi-stage image, ship compiled JS.** Build stage runs `tsc`; runtime
-   stage gets `npm ci --omit=dev --ignore-scripts` (3 prod deps), runs
-   `node dist/index.js`. No `npx` in CMD (registry-reach at runtime), no
-   tsx/esbuild/typescript sitting next to the secrets.
+   stage gets `npm ci --omit=dev --ignore-scripts` (prod deps only — zero
+   today), runs `node dist/index.js`. No `npx` in CMD (registry-reach at
+   runtime), no tsx/esbuild/typescript sitting next to the secrets.
 
 6. **Full compose hardening, both services:** `read_only: true`,
    `tmpfs: [/tmp]`, `cap_drop: [ALL]`, `no-new-privileges:true`,
    `pids_limit`, `mem_limit`. `./config` stays the sole rw mount.
 
-7. **Pin base image by digest** (`node:22-alpine@sha256:…`, both stages).
+7. **Pin base image by digest** (`node:24-slim@sha256:…`, both stages).
    Base updates become a reviewable git diff; we own bumping for Node
    security patches.
 
@@ -61,7 +62,7 @@
    and prod.
 
 9. **Secrets: keep `.env` + `env_file`, but move it outside the repo** to
-   `~/.config/home-manager/env` (chmod 600). Rationale: dev install/test
+   `~/.config/<project>/env` (chmod 600). Rationale: dev install/test
    containers bind-mount the repo dir; secrets in-repo would be readable by
    any compromised package running there. In-process env exposure is accepted
    — the app needs the tokens; egress control limits blast radius.
@@ -75,10 +76,8 @@
 
 ## Known work items (implementation, not decisions)
 
-- Proxy wiring: undici `EnvHttpProxyAgent` as global dispatcher (covers
-  Anthropic SDK + discord.js REST); a proxy agent for the Discord **gateway
-  websocket** (discord.js ws options — the fiddly one); scripts' curl needs
-  only `https_proxy` env.
-- tinyproxy allowlist config + sidecar healthcheck.
-- Bake `data/oui.tsv` into the image (build-stage `refresh-oui.sh` or COPY).
-- `docker-compose.yml`: `env_file` → `${HOME}/.config/home-manager/env`.
+- Proxy wiring in the app, when the sidecar gets enabled:
+  `NODE_USE_ENV_PROXY=1` covers global `fetch`; SDKs that build their own
+  agents want undici's `EnvHttpProxyAgent` as global dispatcher; websocket
+  clients need an explicit proxy agent (the fiddly one). Scripts' curl needs
+  only the `https_proxy` env.

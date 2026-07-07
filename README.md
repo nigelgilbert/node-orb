@@ -19,7 +19,7 @@ That's it. Try `curl localhost:3000`, edit `src/index.ts`, watch it reload.
 | command | what it does | network | env |
 |---|---|---|---|
 | `./dev/install` | `npm ci` from the lockfile | on | none |
-| `./dev/run [docker args]` | foreground `node --watch src/index.ts`; extra args pass to `docker run` (e.g. `-p 8080:3000`) | on | `~/.config/<project>/env` |
+| `./dev/run [docker args]` | foreground `node --watch src/index.ts` on `localhost:3000` (`HOST_PORT=8080 ./dev/run` to move it); extra args pass to `docker run` | on | `~/.config/<project>/env` |
 | `./dev/test [--net]` | `npm test` (node:test, native TS) | **off** (`--net` opts in) | none |
 | `./dev/shell [--net]` | interactive bash in the container | **off** (`--net` opts in) | none |
 | `./dev/update` | regenerate lockfile with a **7-day cooldown** (`npm --before`) | on | none |
@@ -54,13 +54,20 @@ time, require-time exfil at runtime. Full rationale: [HARDENING.md](HARDENING.md
 ## Secrets
 
 Runtime secrets live **outside the repo** (a bind-mounted repo dir is readable
-by any compromised package) at `~/.config/<project-dir-name>/env`:
+by any compromised package) at `~/.config/<project>/env`, where `<project>`
+is your project directory name lowercased and stripped to `a-z0-9_-` (the
+same normalization compose applies, so dev scripts and compose read the same
+file). `./dev/run` prints the exact path it looks for.
 
 ```sh
-mkdir -p ~/.config/node-orb           # ← your project dir name
+mkdir -p ~/.config/node-orb           # ← your sanitized project dir name
 printf 'MY_TOKEN=…\n' > ~/.config/node-orb/env
 chmod 600 ~/.config/node-orb/env
 ```
+
+One dialect note: write plain `KEY=value` lines — no quotes (docker run keeps
+them literally), no bare `KEY` lines (`./dev/run` rejects those; docker would
+import the value from your host env, which these containers must never see).
 
 Only `./dev/run` and `docker compose up` read it (`--env-file` / `env_file`).
 `install`/`test`/`shell` get nothing. Missing file is fine — you'll get a
@@ -94,9 +101,13 @@ When the app holds secrets worth guarding, uncomment the `proxy` service and
 `networks:` block in [docker-compose.yml](docker-compose.yml) plus the
 `networks`/`environment` lines on `app`. The app then sits on an
 `internal: true` network with **no direct route out** — the tinyproxy
-allowlist in [proxy/filter](proxy/filter) is the only door. Edit that file to
-the domains your app actually calls, and keep `NODE_USE_ENV_PROXY=1` so Node's
-`fetch` honors the proxy (SDKs using undici get it too).
+allowlist in [proxy/filter](proxy/filter) is the only door. (Its published
+port survives via the un-masqueraded `ingress` network: inbound keeps
+working, outbound doesn't — `internal: true` alone would silently stop
+publishing the port.) Edit the filter to the domains your app actually calls
+— it matches the *full* hostname, so list `discord.com` and `*.discord.com`
+separately — and keep `NODE_USE_ENV_PROXY=1` so Node's `fetch` honors the
+proxy (SDKs using undici get it too).
 
 ## Adapting the template for a new project
 

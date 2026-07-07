@@ -1,4 +1,8 @@
-# Egress allowlist — one fnmatch domain glob per line. Keep it minimal.
+# Egress allowlist — one fnmatch glob per line, matched against the FULL
+# hostname: `*.discord.com` does NOT match the apex `discord.com` (or
+# `gateway.discord.gg` — different registered domain). List each shape.
 # Placeholders; replace with what THIS project's app actually calls.
 api.anthropic.com
+discord.com
 *.discord.com
+gateway.discord.gg

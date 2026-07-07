@@ -1,23 +1,37 @@
 #!/usr/bin/env bash
 # dev/run — foreground dev server with reload (node --watch, native TS).
-# Network: on. Env: ~/.config/<project>/env via --env-file (run only).
-# Extra args pass through to docker run, e.g.: ./dev/run -p 3000:3000
+# Network: on. Publishes ${HOST_PORT:-3000} → container :3000.
+# Env: ~/.config/<project>/env via --env-file (run only).
+# Extra args pass through to docker run, e.g.: ./dev/run -v "$PWD/data:/data"
 source "$(dirname "$0")/_lib.sh"
 
 env_args=()
 if [ -f "$ENV_FILE" ]; then
+  # docker run --env-file speaks a sharper dialect than compose's env_file:
+  # a bare NAME line imports that variable from the HOST env (exactly what
+  # these containers promise never to see), and quotes are kept literally.
+  # Reject the first, warn on the second, so the same file means the same
+  # thing here and under docker compose.
+  bare="$(grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | grep -Ev '^[A-Za-z_][A-Za-z0-9_]*=' || true)"
+  [ -z "$bare" ] || die "bare/malformed line(s) in $ENV_FILE — need KEY=value (a bare NAME would import your host env): ${bare}"
+  ! grep -Eq "^[A-Za-z_][A-Za-z0-9_]*=[\"']" "$ENV_FILE" || \
+    warn "quoted value(s) in $ENV_FILE — docker run keeps the quotes literally (compose strips them); drop the quotes"
   env_args=(--env-file "$ENV_FILE")
   env_posture="env: $ENV_FILE"
 else
   env_posture="env: none"
 fi
 
-posture "🚀 running" "network: on" "$env_posture" "user: node" "Ctrl-C stops & removes"
+posture "🚀 running" "network: on" "$env_posture" "user: node" "port: ${HOST_PORT:-3000}→3000" "Ctrl-C stops & removes"
 [ -f "$ENV_FILE" ] || warn "no env file at $ENV_FILE — starting without secrets (create it if the app needs any)"
 say "   watching src/ — edits reload automatically"
 
+# PORT is pinned to 3000 in-container so it always matches the published
+# mapping (compose pins it the same way); pick the host side with HOST_PORT.
 exec docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
   --name "${PROJECT}-run-$$" \
+  -p "${HOST_PORT:-3000}:3000" \
   ${env_args[@]+"${env_args[@]}"} \
+  -e PORT=3000 \
   "$@" \
   "$IMAGE" node --watch src/index.ts

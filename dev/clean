@@ -23,7 +23,12 @@ else
   say "   node_modules/ — nothing to remove"
 fi
 
-containers="$(docker ps -aq --filter "label=$LABEL")"
+# Stray = not running. A live ./dev/run or ./dev/shell in another terminal is
+# not clutter — leave it alone instead of force-killing it mid-session.
+containers="$(docker ps -aq --filter "label=$LABEL" \
+  --filter status=created --filter status=exited --filter status=dead)"
+running="$(docker ps -q --filter "label=$LABEL")"
+[ -z "$running" ] || warn "$(echo "$running" | wc -l | tr -d ' ') project container(s) still running — left alone (stop them first if you meant those)"
 if [ -n "$containers" ]; then
   # shellcheck disable=SC2086
   docker rm -f $containers >/dev/null

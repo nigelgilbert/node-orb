@@ -10,9 +10,14 @@ services:
       context: .
       args:
         NODE_IMAGE: ${NODE_IMAGE:?NODE_IMAGE missing — is the .env pin file present?}
+    init: true   # PID 1 that forwards signals — bare `node` as PID 1 ignores
+                 # SIGTERM, so `docker compose stop` hangs 10s then SIGKILLs
     env_file:
       - path: ${HOME}/.config/${COMPOSE_PROJECT_NAME}/env
         required: false
+    environment:
+      PORT: "3000"   # pinned to match the mapping below; a PORT in the
+                     # env_file would move the app off the published port
     ports:
       - "${HOST_PORT:-3000}:3000"
     # --- hardening: the app gets a read-only world and no privileges -------
@@ -26,12 +31,16 @@ services:
     pids_limit: 128
     mem_limit: 512m
     restart: unless-stopped
-    # To force all egress through the proxy sidecar below, move `app` onto the
-    # internal network (uncomment) and teach the app to honor https_proxy:
-    # either set NODE_USE_ENV_PROXY=1 (zero code, covers global fetch) or use
-    # undici's EnvHttpProxyAgent as global dispatcher (covers SDKs too).
-    # networks: [internal]
-    # environment:
+    # To force all egress through the proxy sidecar below, put `app` on the
+    # networks here (uncomment) and teach it to honor https_proxy: either set
+    # NODE_USE_ENV_PROXY=1 (zero code, covers global fetch) or use undici's
+    # EnvHttpProxyAgent as global dispatcher (covers SDKs too).
+    # NOTE: `internal: true` networks do not publish ports — on internal
+    # alone, the `ports:` mapping above silently stops working. The `ingress`
+    # network below exists to keep the published port alive without handing
+    # the app a direct route out (no NAT masquerade = inbound only).
+    # networks: [internal, ingress]
+    # (add to the `environment:` block above:)
     #   NODE_USE_ENV_PROXY: 1
     #   https_proxy: http://proxy:8888
     #   http_proxy: http://proxy:8888
@@ -56,7 +65,10 @@ services:
 #       - ./proxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
 #       - ./proxy/filter:/etc/tinyproxy/filter:ro
 #     healthcheck:
-#       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8888"]
+#       # Plain TCP probe. An HTTP GET straight at tinyproxy earns a 400 (it
+#       # only speaks proxy requests) and busybox wget resolves localhost to
+#       # ::1 while tinyproxy listens on IPv4 — either way: forever-unhealthy.
+#       test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 8888"]
 #       interval: 30s
 #       timeout: 5s
 #       retries: 3
@@ -67,4 +79,7 @@ services:
 # networks:
 #   internal:
 #     internal: true   # no direct egress for anything on this network
-#   egress: {}
+#   egress: {}         # the proxy's route out
+#   ingress:           # app's published port keeps working here: DNAT for
+#     driver_opts:     # inbound is unaffected, but with masquerade off the
+#       com.docker.network.bridge.enable_ip_masquerade: "false"   # app's own outbound packets leave un-NATed and die at the router

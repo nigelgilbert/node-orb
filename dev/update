@@ -10,7 +10,7 @@ BEFORE="$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '7 days ag
 
 posture "🔄 updating lockfile" "network: on" "scripts: ignored" "env: none" "cooldown: --before=$BEFORE"
 
-[ -f package-lock.json ] || die "no package-lock.json to update — run ./dev/install first?"
+[ -f "$REPO_DIR/package-lock.json" ] || die "no package-lock.json to update — run ./dev/install first?"
 
 ensure_cache_volume
 
@@ -20,6 +20,10 @@ docker run "${BASE_ARGS[@]}" \
   "$IMAGE" bash -c '
     set -euo pipefail
     cp package-lock.json /tmp/lock-before.json
+    # The backup lives in container /tmp, the original on the bind mount — if
+    # the re-resolve fails, put the original back before this container (and
+    # its /tmp) evaporate, or the repo loses its lockfile.
+    trap "[ -f package-lock.json ] || cp /tmp/lock-before.json package-lock.json" EXIT
     rm package-lock.json   # full re-resolve: satisfied-but-stale ranges must move too
     npm install --package-lock-only --before="'"$BEFORE"'" >/dev/null
     node -e "
@@ -44,6 +48,6 @@ docker run "${BASE_ARGS[@]}" \
       }
       if (!changed) console.log(\"   nothing changed — lockfile already at the freshest allowed versions\");
     "
-  '
+  ' || die "update failed — lockfile restored untouched. A dep pinned to a version published in the last 7 days (e.g. a package added this week) cannot satisfy the cooldown; retry once it ages past 7 days."
 
 ok "lockfile updated (cooldown honored) — run ./dev/install to apply it"

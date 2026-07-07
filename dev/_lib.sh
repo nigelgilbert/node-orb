@@ -10,7 +10,11 @@ REPO_DIR="$(dirname "$DEV_DIR")"
 
 # Everything per-project derives from the directory name: cache volume,
 # container labels, env-file path. Rename the dir and you get a fresh set.
-PROJECT="$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9_.-]/-/g' -e 's/^[-.]*//')"
+# Sanitization mirrors compose's project-name normalization (lowercase, strip
+# to [a-z0-9_-], trim leading _/-) so the secrets path here and the one
+# docker-compose.yml interpolates from ${COMPOSE_PROJECT_NAME} stay identical.
+PROJECT="$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9_-]//g' -e 's/^[_-]*//')"
+[ -n "$PROJECT" ] || { printf '💥 directory name %s sanitizes to nothing — rename it to something with a-z/0-9\n' "$(basename "$REPO_DIR")" >&2; exit 1; }
 
 # Single source of truth for the base image: the NODE_IMAGE line in the
 # committed root .env (no secrets there — those live in ~/.config/<project>/env).
@@ -52,11 +56,29 @@ posture() {
 # --- container plumbing -----------------------------------------------------
 
 # Named npm-cache volume, owned by the non-root `node` user. The chown runs
-# as root but only touches the volume mount point (cheap + idempotent).
+# as root; recursive only when the mount point isn't already node-owned
+# (fresh volumes are root-owned all the way down — a mount-point-only chown
+# leaves npm hitting EACCES on the subdirs).
 ensure_cache_volume() {
   docker volume create --label "$LABEL" "$CACHE_VOLUME" >/dev/null
   docker run --rm -u root -v "$CACHE_VOLUME:/tmp/.npm" "$IMAGE" \
-    chown node:node /tmp/.npm
+    sh -c '[ "$(stat -c %U /tmp/.npm)" = node ] || chown -R node:node /tmp/.npm'
+}
+
+# Pull a `--net` opt-in out of the arg list (any position, so it composes with
+# pass-through docker args). Sets: net_args, net_posture, pass_args. Parsed
+# here, not positionally in each script — an unconsumed `--net` would reach
+# docker run, where it swallows the next arg (the image ref) as its value.
+parse_net_args() {
+  net_args=(--network none); net_posture="network: OFF"; pass_args=()
+  local arg
+  for arg in "$@"; do
+    if [ "$arg" = "--net" ]; then
+      net_args=(); net_posture="network: ON (--net)"
+    else
+      pass_args+=("$arg")
+    fi
+  done
 }
 
 # The security floor shared by every dev container:

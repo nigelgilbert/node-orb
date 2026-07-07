@@ -6,11 +6,7 @@
 # Env: none (HOME=/tmp). Cache volume mounted so installs stay fast.
 source "$(dirname "$0")/_lib.sh"
 
-net_args=(--network none); net_posture="network: OFF"
-if [ "${1:-}" = "--net" ]; then
-  shift
-  net_args=(); net_posture="network: ON (--net)"
-fi
+parse_net_args "$@"
 
 posture "🐚 shell" "$net_posture" "env: none" "user: node" "exit leaves nothing behind"
 [ "$net_posture" = "network: OFF" ] && say "   need npm? re-run as: ./dev/shell --net"
@@ -21,7 +17,7 @@ docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
   --name "${PROJECT}-shell-$$" \
   -v "$CACHE_VOLUME:/tmp/.npm" \
   ${net_args[@]+"${net_args[@]}"} \
-  "$@" \
+  ${pass_args[@]+"${pass_args[@]}"} \
   "$IMAGE" bash
 
 ok "shell closed — container removed"
