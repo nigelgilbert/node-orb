@@ -25,6 +25,8 @@ fi
 
 # Stray = not running. A live ./dev/run or ./dev/shell in another terminal is
 # not clutter — leave it alone instead of force-killing it mid-session.
+# Paused counts as live: someone froze it on purpose, and `docker ps` lists
+# it, so the "still running" warning below surfaces it rather than leaking it.
 containers="$(docker ps -aq --filter "label=$LABEL" \
   --filter status=created --filter status=exited --filter status=dead)"
 running="$(docker ps -q --filter "label=$LABEL")"
