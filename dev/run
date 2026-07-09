@@ -14,14 +14,24 @@ parse_net_args --reject-net "$@"
 
 env_args=()
 if [ -f "$ENV_FILE" ]; then
-  # docker run --env-file speaks a sharper dialect than compose's env_file:
-  # a bare NAME line imports that variable from the HOST env (exactly what
-  # these containers promise never to see), and quotes are kept literally.
-  # Reject the first, warn on the second, so the same file means the same
-  # thing here and under docker compose.
-  bare="$(grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | grep -Ev '^[A-Za-z_][A-Za-z0-9_]*=' || true)"
+  # docker run --env-file and compose's env_file overlap but don't agree on
+  # everything; validate the intersection so one file means the same in both.
+  # (Behaviors below were confirmed empirically against docker run + compose.)
+  #   - bare NAME (no '='): docker run imports NAME from the HOST env — exactly
+  #     what these containers promise never to see; compose rejects it. → reject.
+  #   - inline '# comment' after an *unquoted* value: compose strips it
+  #     (API_KEY=secret # prod → "secret") but docker run keeps it literally
+  #     ("secret # prod"), so the value silently differs. → reject. Note a '#'
+  #     with no leading space (a#b) is NOT a comment to either parser — both
+  #     keep it — so it stays allowed.
+  #   - quotes: docker run keeps them literally, compose strips them. → warn.
+  #   - leading indentation on a KEY=value line: both parsers trim it and agree
+  #     on the result, so it is accepted.
+  bare="$(grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | grep -Ev '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=' || true)"
   [ -z "$bare" ] || die "bare/malformed line(s) in $ENV_FILE — need KEY=value (a bare NAME would import your host env): ${bare}"
-  ! grep -Eq "^[A-Za-z_][A-Za-z0-9_]*=[\"']" "$ENV_FILE" || \
+  inline="$(grep -E "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^\"']*[[:space:]]#" "$ENV_FILE" || true)"
+  [ -z "$inline" ] || die "inline '# comment' after an unquoted value in $ENV_FILE — compose strips it but docker run keeps it literally, so the value would differ; move the comment to its own line or quote the value: ${inline}"
+  ! grep -Eq "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[\"']" "$ENV_FILE" || \
     warn "quoted value(s) in $ENV_FILE — docker run keeps the quotes literally (compose strips them); drop the quotes"
   env_args=(--env-file "$ENV_FILE")
   env_posture="env: $ENV_FILE"
