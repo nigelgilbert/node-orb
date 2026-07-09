@@ -79,17 +79,49 @@ ensure_cache_volume() {
 
 # Pull a `--net` opt-in out of the arg list (any position, so it composes with
 # pass-through docker args). Sets: net_args, net_posture, pass_args. Parsed
-# here, not positionally in each script — an unconsumed `--net` would reach
-# docker run, where it swallows the next arg (the image ref) as its value.
+# here, not positionally in each script — an unconsumed network flag would reach
+# docker run AFTER our `--network none`, and last-flag-wins would silently give
+# the container host networking while the banner still read OFF.
+#
+# In this template `--net` (and its `--network` alias) is a BOOLEAN opt-in: bare
+# = networking ON, nothing else. docker's real --net/--network takes a value
+# (host, bridge, container:…); we offer only all-or-nothing, so every
+# value-carrying spelling is matched and rejected — never passed through:
+#   --net=host / --network=host      (= form)         → rejected
+#   --net host / --network host      (space form)     → rejected, value swallowed
+#
+# Pass `--reject-net` as the first arg (dev/run) to forbid networking flags
+# outright — run is networked by design, so there is nothing to opt into.
 parse_net_args() {
+  local mode=opt_in
+  if [ "${1:-}" = "--reject-net" ]; then mode=reject; shift; fi
   net_args=(--network none); net_posture="network: OFF"; pass_args=()
-  local arg
-  for arg in "$@"; do
-    if [ "$arg" = "--net" ]; then
-      net_args=(); net_posture="network: ON (--net)"
-    else
-      pass_args+=("$arg")
-    fi
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --net=*|--network=*)
+        if [ "$mode" = reject ]; then
+          die "dev/run always has network — drop the ${1%%=*} flag (run is networked by design)"
+        fi
+        die "network flags take no value here — use bare --net to turn networking ON (got: $1)"
+        ;;
+      --net|--network)
+        # A non-flag token immediately after is a space-separated docker network
+        # value (e.g. `--network host`); swallow it so it can't fall through.
+        local has_value=0
+        if [ "$#" -ge 2 ]; then case "$2" in -*) ;; *) has_value=1;; esac; fi
+        if [ "$mode" = reject ]; then
+          die "dev/run always has network — drop the $1 flag (run is networked by design)"
+        fi
+        if [ "$has_value" = 1 ]; then
+          die "network flags take no value here — use bare --net to turn networking ON (got: $1 $2)"
+        fi
+        net_args=(); net_posture="network: ON (--net)"
+        ;;
+      *)
+        pass_args+=("$1")
+        ;;
+    esac
+    shift
   done
 }
 

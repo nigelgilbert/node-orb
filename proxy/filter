@@ -1,6 +1,15 @@
-# Egress allowlist — one fnmatch glob per line, matched against the FULL
-# hostname: `*.discord.com` does NOT match the apex `discord.com` (or
-# `gateway.discord.gg` — different registered domain). List each shape.
+# Egress allowlist — one fnmatch glob per line, matched against the parsed
+# HOST only (verified on tinyproxy 1.11.3), never the path or userinfo. So
+# `http://discord.com@evil.com/x` is denied (real host evil.com), and a path
+# like `evil.com/discord.com` is denied too.
+#
+# Anchoring gotchas (fnmatch, no FNM_PATHNAME → `*` also matches dots):
+#   - `*.discord.com` does NOT match the apex `discord.com`; list both shapes.
+#   - `gateway.discord.gg` is a different registered domain from discord.com —
+#     list it explicitly.
+#   - A leading `*` with no dot is DANGEROUS: `*discord.com` would also match
+#     `evildiscord.com`. Prefer exact apexes and `*.<domain>` subdomain globs.
+#
 # Placeholders; replace with what THIS project's app actually calls.
 api.anthropic.com
 discord.com

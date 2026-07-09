@@ -6,6 +6,12 @@
 # Extra args pass through to docker run, e.g.: ./dev/run -v "$PWD/data:/data"
 source "$(dirname "$0")/_lib.sh"
 
+# run is networked by design, so reject any --net/--network flag up front (and
+# swallow its value) rather than letting it reach docker run — where a stray
+# --net would consume the next token (the image ref) and error confusingly.
+# Sets pass_args (the sanctioned pass-through args) from "$@".
+parse_net_args --reject-net "$@"
+
 env_args=()
 if [ -f "$ENV_FILE" ]; then
   # docker run --env-file speaks a sharper dialect than compose's env_file:
@@ -37,6 +43,6 @@ exec docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
   --name "${PROJECT}-run-$$" \
   -p "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000" \
   ${env_args[@]+"${env_args[@]}"} \
-  "$@" \
+  ${pass_args[@]+"${pass_args[@]}"} \
   -e PORT=3000 \
   "$IMAGE" node --watch src/index.ts

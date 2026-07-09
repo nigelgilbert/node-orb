@@ -1,6 +1,93 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { connect } from "node:net";
+import { fileURLToPath } from "node:url";
 import { greeting, resolvePort } from "./index.ts";
+
+const ENTRY = fileURLToPath(new URL("./index.ts", import.meta.url));
+
+// Spawn the real server on an ephemeral port and wait until it's listening.
+function startServer(): Promise<{
+  child: ReturnType<typeof spawn>;
+  port: number;
+}> {
+  return new Promise((resolve, reject) => {
+    // The strict parser rejects PORT=0, so pick a random high port instead and
+    // confirm the server bound it via the listen banner.
+    const port = 20000 + Math.floor(Math.random() * 20000);
+    const child = spawn(process.execPath, [ENTRY], {
+      env: { ...process.env, PORT: String(port), GREETING: "Hello from test" },
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+    let buf = "";
+    child.stdout!.on("data", (d) => {
+      buf += d.toString();
+      if (/listening on :\d+/.test(buf)) resolve({ child, port });
+    });
+    child.once("error", reject);
+    child.once("exit", (code) =>
+      reject(new Error(`server exited early (code ${code}) before listening`)),
+    );
+  });
+}
+
+function waitForExit(
+  child: ReturnType<typeof spawn>,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  return new Promise((resolve) =>
+    child.once("exit", (code, signal) => resolve({ code, signal })),
+  );
+}
+
+test("SIGTERM exits 0 quickly even with an idle keep-alive connection held open", async () => {
+  const { child, port } = await startServer();
+
+  // Open a raw socket, send one keep-alive request, read the response, then sit
+  // idle (never close). Without closeIdleConnections() this would pin the server
+  // open until SIGKILL.
+  const sock = connect(port, "127.0.0.1");
+  await new Promise<void>((res) => sock.once("connect", () => res()));
+  await new Promise<void>((res) => {
+    sock.once("data", () => res());
+    sock.write(
+      `GET / HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n`,
+    );
+  });
+
+  const start = Date.now();
+  const exited = waitForExit(child);
+  child.kill("SIGTERM");
+  const { code, signal } = await exited;
+  const elapsed = Date.now() - start;
+
+  sock.destroy();
+  assert.equal(signal, null, "must exit cleanly, not via SIGKILL");
+  assert.equal(code, 0, "must exit 0");
+  assert.ok(elapsed < 9000, `expected fast exit, took ${elapsed}ms`);
+});
+
+test("an in-flight request at SIGTERM time still receives its response", async () => {
+  const { child, port } = await startServer();
+
+  const sock = connect(port, "127.0.0.1");
+  await new Promise<void>((res) => sock.once("connect", () => res()));
+
+  let response = "";
+  sock.setEncoding("utf8");
+  sock.on("data", (d) => (response += d));
+
+  // Fire the request, then immediately SIGTERM — the response must still arrive.
+  sock.write(`GET / HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n`);
+  child.kill("SIGTERM");
+
+  const { code } = await waitForExit(child);
+  sock.destroy();
+
+  assert.equal(code, 0);
+  assert.match(response, /HTTP\/1\.1 200/);
+  assert.match(response, /Hello from test/);
+});
 
 test("greeting falls back to the default when GREETING is unset", () => {
   delete process.env.GREETING;
