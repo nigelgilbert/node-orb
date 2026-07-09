@@ -137,7 +137,7 @@ running the suite with `PORT=8080`: the test fails.
 
 **`dev/_lib.sh:62`** — `ensure_cache_volume` runs `docker run --rm -u root ...`
 (full container create+start+remove, ~0.3–2s of daemon round-trips + image-layer
-plumbing) on every `dev/shell`, `dev/test`, and `dev/update` call. The
+plumbing) on every `dev/install`, `dev/update`, and `dev/shell` call. The
 in-container `stat` only short-circuits the `chown`, not the expensive part —
 the container start. Ownership persists on the named volume, so after the first
 run this is a no-op that still pays full container-start cost.
@@ -204,8 +204,10 @@ Independent re-verification against the tree and live Docker/Node behavior.
   consume the following token.
 - **F7 — confirmed empirically.** Suite run with `PORT=8080` exported:
   `✖ resolvePort defaults to 3000 when PORT is unset`.
-- **F8 — confirmed.** `ensure_cache_volume` runs a container per invocation;
-  `stat` only gates the `chown`.
+- **F8 — confirmed, callers corrected.** `ensure_cache_volume` runs a container
+  per invocation; `stat` only gates the `chown`. Callers are `dev/install`,
+  `dev/update`, and `dev/shell` (verified via `grep -rn ensure_cache_volume dev/`)
+  — `dev/test` does not call it, contrary to the original finding text.
 - **A1 — confirmed.** `src/index.ts:32` calls `server.close()` with no idle
   timeout / `closeAllConnections`.
 - **A2 — confirmed.** `dev/update:52` `die` message is fixed to the 7-day
