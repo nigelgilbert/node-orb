@@ -29,6 +29,9 @@ say "   watching src/ — edits reload automatically"
 # PORT is pinned to 3000 in-container so it always matches the published
 # mapping (compose pins it the same way); pick the host side with HOST_PORT.
 # The pin sits after "$@" so pass-through args can't desync it.
+# Authority for the container-side port: DEFAULT_PORT in src/index.ts. Moving
+# the app to a new port means updating that constant, then this pin and the
+# compose mapping/environment to match.
 exec docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
   --name "${PROJECT}-run-$$" \
   -p "${HOST_PORT:-3000}:3000" \

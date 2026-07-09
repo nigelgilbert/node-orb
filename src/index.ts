@@ -1,10 +1,23 @@
 import { createServer } from "node:http";
 
+// SINGLE SOURCE OF TRUTH for the app's port. Everywhere else the port is
+// pinned (docker-compose.yml `environment`/`ports`, dev/run `-e PORT=…`) points
+// back here in a comment — moving the app to a new port starts by editing this
+// constant, then updating the two call sites its comments name.
+export const DEFAULT_PORT = 3000;
+
 // `??` alone won't do here: PORT="" must fall back (Number("") is 0 → bind to
 // a random port), and garbage must fail loudly instead of NaN-crashing later.
+// Only plain decimal digits are accepted — Number() would otherwise quietly
+// take hex ("0x50"→80), octal ("0o17"→15), and scientific ("1e3"→1000)
+// notation, binding a port the operator never wrote (A4).
 export function resolvePort(raw = process.env.PORT): number {
   const trimmed = raw?.trim();
-  const port = trimmed ? Number(trimmed) : 3000;
+  if (!trimmed) return DEFAULT_PORT;
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`invalid PORT ${JSON.stringify(raw)} — expected plain decimal digits (an integer between 1 and 65535)`);
+  }
+  const port = Number(trimmed);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`invalid PORT ${JSON.stringify(raw)} — expected an integer between 1 and 65535`);
   }
@@ -16,7 +29,7 @@ export function greeting(): string {
 }
 
 if (import.meta.main) {
-  const PORT = resolvePort(); // fail fast on misconfiguration, before binding
+  const PORT = resolvePort(); // fail fast on misconfiguration, before binding (defaults to DEFAULT_PORT)
   const server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end(`${greeting()}\n`);

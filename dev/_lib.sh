@@ -21,8 +21,12 @@ PROJECT="$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-
 # Dev scripts parse it here; docker compose auto-loads .env and feeds it to the
 # Dockerfile as a build arg. dev/bump-node rewrites this one line.
 PIN_FILE="$REPO_DIR/.env"
-IMAGE="$(sed -n 's/^NODE_IMAGE=//p' "$PIN_FILE" | head -n1)"
-[ -n "$IMAGE" ] || { printf '💥 no NODE_IMAGE= line in %s\n' "$PIN_FILE" >&2; exit 1; }
+# Compose interpolates the LAST duplicate key; this helper would take the first.
+# A duplicated pin would silently split dev and prod across two digests, so
+# require exactly one NODE_IMAGE= line — fail loudly on 0 or >1.
+PIN_COUNT="$(grep -c '^NODE_IMAGE=' "$PIN_FILE" 2>/dev/null || true)"
+[ "$PIN_COUNT" = 1 ] || { printf '💥 expected exactly one NODE_IMAGE= line in %s, found %s\n' "$PIN_FILE" "${PIN_COUNT:-0}" >&2; exit 1; }
+IMAGE="$(sed -n 's/^NODE_IMAGE=//p' "$PIN_FILE")"
 
 CACHE_VOLUME="${PROJECT}-npm-cache"
 ENV_FILE="$HOME/.config/$PROJECT/env"

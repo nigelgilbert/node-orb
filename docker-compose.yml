@@ -17,9 +17,11 @@ services:
         required: false
     environment:
       PORT: "3000"   # pinned to match the mapping below; a PORT in the
-                     # env_file would move the app off the published port
+                     # env_file would move the app off the published port.
+                     # Authority: DEFAULT_PORT in src/index.ts — if you move
+                     # the port there, update this value and the mapping below.
     ports:
-      - "${HOST_PORT:-3000}:3000"
+      - "${HOST_PORT:-3000}:3000"   # container side derives from DEFAULT_PORT (src/index.ts)
     # --- hardening: the app gets a read-only world and no privileges -------
     read_only: true
     tmpfs:
