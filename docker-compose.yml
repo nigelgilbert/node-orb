@@ -21,7 +21,10 @@ services:
                      # Authority: DEFAULT_PORT in src/index.ts — if you move
                      # the port there, update this value and the mapping below.
     ports:
-      - "${HOST_PORT:-3000}:3000"   # container side derives from DEFAULT_PORT (src/index.ts)
+      # Bound to loopback (127.0.0.1) by default so the secrets-holding process
+      # is not reachable from the LAN; set BIND_ADDR=0.0.0.0 to expose it (see
+      # HARDENING.md). Container side derives from DEFAULT_PORT (src/index.ts).
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000"
     # --- hardening: the app gets a read-only world and no privileges -------
     read_only: true
     tmpfs:

@@ -19,8 +19,8 @@ Note: 011 (tranche 1) may add comments to dev/run and compose; 009/008/015 edit 
 |---|---|---|---|
 | 007 | 1 | ✅ verified | Guard in dev/_lib.sh pin reader; ./dev/test 7/7; bump-node sed keeps exactly one line (safe) |
 | 011 | 1 | ✅ verified | DEFAULT_PORT in src/index.ts is authority; strict /^\d+$/; test isolation; comment trail in compose + dev/run; suite 7/7 incl. PORT=8080 exported |
-| 009 | 2 | pending | |
-| 012 | 2 | pending | |
+| 009 | 2 | ✅ verified | BIND_ADDR (default 127.0.0.1) host-side prefix in dev/run + compose; HARDENING.md decision 10 documents opt-out BIND_ADDR=0.0.0.0 |
+| 012 | 2 | ✅ verified | volume-inspect fast path in ensure_cache_volume; hot path 46ms/0 containers; clean→install E2E OK |
 | 008 | 3 | pending | |
 | 010 | 3 | pending | SHIP decision |
 | 013 | 3 | pending | |
@@ -30,7 +30,7 @@ Note: 011 (tranche 1) may add comments to dev/run and compose; 009/008/015 edit 
 ## Integration checks
 
 - Tranche 1: ✅ PASS — dev/test 7/7, compose config valid, run smoke OK (curl 3000), _lib.sh + PORT story cohere. Note: container-side 3000 literal in compose/dev-run is comment-coupled to DEFAULT_PORT by design.
-- Tranche 2: pending
+- Tranche 2: ✅ PASS — dev/test 7/7, compose config shows host_ip 127.0.0.1, run smoke OK, _lib.sh fast path + pin guard cohere, HARDENING decision 10 matches actual behavior.
 - Tranche 3: pending
 - Tranche 4: pending
 - Final VERIFY.md run: pending

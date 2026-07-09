@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # dev/run — foreground dev server with reload (node --watch, native TS).
-# Network: on. Publishes ${HOST_PORT:-3000} → container :3000.
+# Network: on. Publishes ${HOST_PORT:-3000} → container :3000, on loopback
+#   (127.0.0.1) by default; set BIND_ADDR=0.0.0.0 to expose on the LAN. See HARDENING.md.
 # Env: ~/.config/<project>/env via --env-file (run only).
 # Extra args pass through to docker run, e.g.: ./dev/run -v "$PWD/data:/data"
 source "$(dirname "$0")/_lib.sh"
@@ -22,7 +23,7 @@ else
   env_posture="env: none"
 fi
 
-posture "🚀 running" "network: on" "$env_posture" "user: node" "port: ${HOST_PORT:-3000}→3000" "Ctrl-C stops & removes"
+posture "🚀 running" "network: on" "$env_posture" "user: node" "port: ${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}→3000" "Ctrl-C stops & removes"
 [ -f "$ENV_FILE" ] || warn "no env file at $ENV_FILE — starting without secrets (create it if the app needs any)"
 say "   watching src/ — edits reload automatically"
 
@@ -34,7 +35,7 @@ say "   watching src/ — edits reload automatically"
 # compose mapping/environment to match.
 exec docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
   --name "${PROJECT}-run-$$" \
-  -p "${HOST_PORT:-3000}:3000" \
+  -p "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000" \
   ${env_args[@]+"${env_args[@]}"} \
   "$@" \
   -e PORT=3000 \

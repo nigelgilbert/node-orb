@@ -64,6 +64,14 @@ posture() {
 # (fresh volumes are root-owned all the way down — a mount-point-only chown
 # leaves npm hitting EACCES on the subdirs).
 ensure_cache_volume() {
+  # Hot path: an existing volume was already chowned to `node` when we first
+  # created it, and that ownership persists. A `docker volume inspect` probe
+  # (one cheap daemon round-trip) lets us skip the ~0.3–2s container start on
+  # every dev/install, dev/update, and dev/shell after the one-time setup.
+  docker volume inspect "$CACHE_VOLUME" >/dev/null 2>&1 && return 0
+  # Cold path only: create the volume and fix ownership. The stat guard keeps
+  # the recursive chown to the case that needs it (fresh volumes are root-owned
+  # all the way down; a mount-point-only chown leaves npm hitting EACCES).
   docker volume create --label "$LABEL" "$CACHE_VOLUME" >/dev/null
   docker run --rm -u root -v "$CACHE_VOLUME:/tmp/.npm" "$IMAGE" \
     sh -c '[ "$(stat -c %U /tmp/.npm)" = node ] || chown -R node:node /tmp/.npm'

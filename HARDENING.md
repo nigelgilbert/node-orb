@@ -67,6 +67,19 @@
    any compromised package running there. In-process env exposure is accepted
    — the app needs the tokens; egress control limits blast radius.
 
+10. **Published port binds loopback by default.** Both `./dev/run` and the
+    compose `ports:` mapping publish the app port as
+    `127.0.0.1:${HOST_PORT:-3000}:3000`, so docker binds `127.0.0.1` rather than
+    `0.0.0.0`. The dev process and prod container both load the project env file
+    (`~/.config/<project>/env`); a `0.0.0.0` bind would let any peer on the same
+    LAN (coffee-shop/office WiFi) `curl <host-ip>:3000` and reach the process
+    holding those secrets. Loopback keeps it reachable only from the host.
+    *Deliberate opt-out:* set `BIND_ADDR=0.0.0.0` (or a specific host IP) in the
+    environment for `./dev/run` or `docker compose up` when you genuinely mean to
+    expose the port — e.g. `BIND_ADDR=0.0.0.0 docker compose up`. The container-
+    side port stays pinned to `DEFAULT_PORT` (src/index.ts); `BIND_ADDR` and
+    `HOST_PORT` only steer the host side of the mapping.
+
 ## Standing rules (dev hygiene)
 
 - Install containers get the repo dir mounted — **never `$HOME`**.
