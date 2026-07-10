@@ -3,11 +3,11 @@
 **Type**: HITL (ship-vs-drop is a design decision, and tinyproxy's filter
 semantics need live verification before the allowlist can be trusted)
 
-**Status:** 🔲 Not started
+**Status:** ✅ Complete
 
 ## Parent
 
-[REVIEW.md](../REVIEW.md) — the egress half of Finding 4, and Finding 5.
+REVIEW.md (since removed) — the egress half of Finding 4, and Finding 5.
 
 ## What to build
 

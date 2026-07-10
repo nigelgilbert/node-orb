@@ -2,11 +2,11 @@
 
 **Type**: AFK
 
-**Status:** 🔲 Not started
+**Status:** ✅ Complete
 
 ## Parent
 
-[REVIEW.md](../REVIEW.md) — Finding 1.
+REVIEW.md (since removed) — Finding 1.
 
 ## What to build
 

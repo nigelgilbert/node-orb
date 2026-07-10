@@ -133,7 +133,7 @@ test("greeting honors the GREETING env var", () => {
 test("resolvePort defaults to 3000 when PORT is unset", () => {
   // Clear the host/CI PORT first (mirrors the greeting test's GREETING delete);
   // resolvePort(undefined) reads process.env.PORT via its default param, so an
-  // exported PORT would otherwise flip this result. See REVIEW.md Finding 7.
+  // exported PORT would otherwise flip this result. See issues/011.
   delete process.env.PORT;
   assert.equal(resolvePort(undefined), 3000);
 });

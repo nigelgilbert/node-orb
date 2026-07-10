@@ -2,11 +2,11 @@
 
 **Type**: AFK
 
-**Status:** 🔲 Not started
+**Status:** ✅ Complete
 
 ## Parent
 
-[REVIEW.md](../REVIEW.md) — Addendum A3.
+REVIEW.md (since removed) — Addendum A3.
 
 ## What to build
 

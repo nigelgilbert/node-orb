@@ -2,11 +2,11 @@
 
 **Type**: AFK
 
-**Status:** 🔲 Not started
+**Status:** ✅ Complete
 
 ## Parent
 
-[REVIEW.md](../REVIEW.md) — Finding 7, Addendum A4, and the altitude note.
+REVIEW.md (since removed) — Finding 7, Addendum A4, and the altitude note.
 
 ## What to build
 

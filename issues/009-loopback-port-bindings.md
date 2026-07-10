@@ -2,11 +2,11 @@
 
 **Type**: AFK
 
-**Status:** 🔲 Not started
+**Status:** ✅ Complete
 
 ## Parent
 
-[REVIEW.md](../REVIEW.md) — Finding 3 and the ports half of Finding 4.
+REVIEW.md (since removed) — Finding 3 and the ports half of Finding 4.
 
 ## What to build
 
