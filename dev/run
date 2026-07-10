@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dev/run — foreground dev server with reload (node --watch, native TS).
 # Network: on. Publishes ${HOST_PORT:-3000} → container :3000, on loopback
-#   (127.0.0.1) by default; set BIND_ADDR=0.0.0.0 to expose on the LAN. See HARDENING.md.
+#   (127.0.0.1) by default; set BIND_ADDR=0.0.0.0 to expose on the LAN.
 # Env: ~/.config/<project>/env via --env-file (run only).
 # Extra args pass through to docker run, e.g.: ./dev/run -v "$PWD/data:/data"
 source "$(dirname "$0")/_lib.sh"

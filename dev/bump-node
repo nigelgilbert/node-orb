@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dev/bump-node — refresh the base-image digest pin (NODE_IMAGE= in .env),
 # the single source of truth for dev scripts AND the prod Dockerfile.
-# Base-image updates become a reviewable one-line git diff (HARDENING.md §7).
+# Base-image updates become a reviewable one-line git diff.
 source "$(dirname "$0")/_lib.sh"
 
 TAG="${IMAGE%%@*}"          # e.g. node:24-slim

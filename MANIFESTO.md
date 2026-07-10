@@ -36,7 +36,7 @@ you resolve, and `./dev/update` refuses anything published in the last 7 days �
 worm releases get yanked within hours. Updates are a conscious act with a
 reviewable diff, never a background drift.
 
-**5. Secrets live outside the repo.** They sit at at
+**5. Secrets live outside the repo.** They sit at
 `~/.config/<project>/env` (chmod 600), because a bind-mounted repo is readable
 by any compromised package. The app needs its tokens in memory — we accept
 that — so we cap the damage with egress control instead.
@@ -71,6 +71,3 @@ trim them to exactly what *your* app calls before relying on it. Global `fetch`
 honors the proxy for free; SDKs that build their own undici transport want
 `EnvHttpProxyAgent`, and websocket clients need an explicit proxy agent. Re-run
 `./proxy/verify-egress.sh` whenever you touch the pinned proxy.
-
-*The full decision log with verified filter semantics and network topology is
-preserved in git history (see the commits on `harden-dev-scripts-and-networking`).*

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live acceptance test for the egress-control topology (HARDENING.md §2/§6).
+# Live acceptance test for the egress-control topology.
 # Brings the compose stack up, exercises the real controls end-to-end against
 # the deployed tinyproxy, tears everything down, and exits non-zero on any
 # failure. Run from the repo root: ./proxy/verify-egress.sh

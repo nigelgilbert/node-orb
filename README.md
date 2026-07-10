@@ -2,8 +2,7 @@
 
 A clean, fun, **hardened** Node 24 + TypeScript dev-environment template for
 Docker/OrbStack on macOS. Copy it, rename it, and every supply-chain rule from
-[HARDENING.md](HARDENING.md) is already in force — no host node/npm needed,
-ever. Threat model and design rationale live in [HARDENING.md](HARDENING.md).
+[MANIFESTO.md](MANIFESTO.md) is already in force — no host node/npm needed, ever.
 
 ## 60-second quickstart
 
@@ -35,7 +34,7 @@ per-project npm cache volume named `<project-dir>-npm-cache`.
 ## Security model, in brief
 
 Threat model: Shai-Hulud-class npm worms — malicious `postinstall` at install
-time, require-time exfil at runtime. Full rationale: [HARDENING.md](HARDENING.md).
+time, require-time exfil at runtime. Full rationale: [MANIFESTO.md](MANIFESTO.md).
 
 - **Containers never see your host env or `$HOME`.** Every container runs as
   the non-root `node` user with `HOME=/tmp` and zero env passed in. Your gh

@@ -1,4 +1,4 @@
-# Production compose — hardened per HARDENING.md §2 and §6.
+# Production compose.
 # Build/run: docker compose build && docker compose up
 # The base-image digest comes from .env (NODE_IMAGE=…), auto-loaded by compose.
 # Secrets come from ~/.config/<this-directory-name>/env — same file ./dev/run
@@ -20,7 +20,7 @@
 # under Docker Desktop's VM NAT (verified: a direct fetch still returns 200) —
 # the app keeps a working route out and the allowlist is bypassed. The only
 # portable way to actually cut the app's egress is to keep it internal-only and
-# publish through the forwarder. See HARDENING.md §6.
+# publish through the forwarder.
 
 services:
   app:
@@ -40,8 +40,8 @@ services:
                      # the port there, update this value and the mapping below.
       # Force all egress through the proxy sidecar. NODE_USE_ENV_PROXY=1 makes
       # Node's global fetch honor *_proxy with zero code; SDKs that build their
-      # own undici agents want EnvHttpProxyAgent as the global dispatcher (see
-      # HARDENING.md §2 known work items). Scripts' curl honors https_proxy too.
+      # own undici agents want EnvHttpProxyAgent as the global dispatcher.
+      # Scripts' curl honors https_proxy too.
       NODE_USE_ENV_PROXY: "1"
       https_proxy: http://172.31.9.3:8888
       http_proxy: http://172.31.9.3:8888
@@ -108,7 +108,7 @@ services:
     ports:
       # Bound to loopback (127.0.0.1) by default so the secrets-holding process
       # behind this forwarder is not reachable from the LAN; set BIND_ADDR=0.0.0.0
-      # to expose it (see HARDENING.md). Container side is the app's DEFAULT_PORT
+      # to expose it deliberately. Container side is the app's DEFAULT_PORT
       # (src/index.ts); the forwarder listens on the same 3000 and pipes through.
       - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000"
     read_only: true

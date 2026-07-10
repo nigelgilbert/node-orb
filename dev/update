@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dev/update — regenerate the lockfile with a 7-day cooldown (HARDENING.md §4):
+# dev/update — regenerate the lockfile with a 7-day cooldown:
 # npm's --before makes versions published in the last week structurally
 # unresolvable, so a freshly-poisoned release can't reach us.
 # Network: on (registry). Scripts: ignored. Env: none (HOME=/tmp).
