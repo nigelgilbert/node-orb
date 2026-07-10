@@ -17,8 +17,9 @@ if [ -f "$ENV_FILE" ]; then
   # Refuse a secrets file other local users could read — on a multi-user host
   # an accidental 0644 hands every token in it to anyone with a shell. Same
   # remediation either way: chown yourself / chmod 600. Compose reads this
-  # exact file too but has no preflight hook, so this check (and the README
-  # note) is the enforcement point for both consumers.
+  # exact file too but has no preflight hook — it loads a mis-permissioned file
+  # without complaint. This check therefore guards only the ./dev/run path;
+  # keeping it 0600 for the compose path is on the user (see the README note).
   [ -O "$ENV_FILE" ] || die "secrets file $ENV_FILE is not owned by you — chown it (then: chmod 600 $ENV_FILE)"
   # BSD stat (macOS) spells octal mode -f %Lp; GNU spells it -c %a.
   perms="$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")"

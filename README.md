@@ -64,10 +64,11 @@ printf 'MY_TOKEN=…\n' > ~/.config/node-orb/env
 chmod 600 ~/.config/node-orb/env
 ```
 
-The `chmod 600` is enforced, not just suggested: `./dev/run` refuses a secrets
-file that is group/world-accessible or owned by someone else. `docker compose`
-reads the same file but has no preflight hook, so keep it `0600` — the
-`dev/run` check is the enforcement point for both.
+The `chmod 600` is enforced, not just suggested — but only on the `./dev/run`
+path: it refuses a secrets file that is group/world-accessible or owned by
+someone else. `docker compose up` reads the same file but runs no such check —
+it will load a mis-permissioned file without complaint — so keep it `0600`
+yourself. The `./dev/run` guard only covers its own path.
 
 One dialect note: write plain `KEY=value` lines — no quotes (docker run keeps
 them literally), no bare `KEY` lines (`./dev/run` rejects those; docker would
