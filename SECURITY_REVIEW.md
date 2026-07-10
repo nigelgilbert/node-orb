@@ -15,7 +15,7 @@ The review found one medium-severity weakness in the default egress policy and t
 
 ### 1. Medium: default egress allowlist permits secret exfiltration
 
-**Evidence:** `proxy/filter:13-17`, `HARDENING.md:44-49`, `HARDENING.md:67-73`
+**Evidence:** `proxy/filter:13-17`, `MANIFESTO.md:44-49`, `MANIFESTO.md:69-73`
 
 The shipped proxy filter contains placeholder Discord domains, including `discord.com`. Code executing inside the application can therefore POST environment secrets to an attacker-controlled Discord webhook. This bypasses the intended egress containment for the same compromised-dependency threat described by the hardening documentation.
 
