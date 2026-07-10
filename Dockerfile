@@ -17,7 +17,7 @@ RUN npm run build
 
 # --- runtime stage: prod deps only, compiled JS only ------------------------
 # No src/, no typescript, no npx in CMD — nothing registry-reaching or
-# TS-tooling-shaped sits next to the secrets (HARDENING.md §5).
+# TS-tooling-shaped sits next to the secrets.
 FROM ${NODE_IMAGE} AS runtime
 USER node
 ENV HOME=/tmp NODE_ENV=production
