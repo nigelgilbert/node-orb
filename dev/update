@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dev/update — regenerate the lockfile with a 7-day cooldown (HARDENING.md §4):
+# dev/update — regenerate the lockfile with a 7-day cooldown:
 # npm's --before makes versions published in the last week structurally
 # unresolvable, so a freshly-poisoned release can't reach us.
 # Network: on (registry). Scripts: ignored. Env: none (HOME=/tmp).
@@ -10,16 +10,26 @@ BEFORE="$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '7 days ag
 
 posture "🔄 updating lockfile" "network: on" "scripts: ignored" "env: none" "cooldown: --before=$BEFORE"
 
-[ -f package-lock.json ] || die "no package-lock.json to update — run ./dev/install first?"
+[ -f "$REPO_DIR/package-lock.json" ] || die "no package-lock.json to update — run ./dev/install first?"
 
 ensure_cache_volume
 
-docker run "${BASE_ARGS[@]}" \
+# Capture the container's combined output so a failure can be diagnosed from
+# npm's actual error rather than guessed at. The in-container EXIT trap has
+# already restored the lockfile by the time control returns here — the branch
+# below only decides which explanation to print.
+set +e
+update_output="$(docker run "${BASE_ARGS[@]}" \
   --name "${PROJECT}-update-$$" \
   -v "$CACHE_VOLUME:/tmp/.npm" \
   "$IMAGE" bash -c '
     set -euo pipefail
     cp package-lock.json /tmp/lock-before.json
+    # The backup lives in container /tmp, the original on the bind mount — on
+    # ANY failure (missing OR partially-written lockfile), put the original
+    # back before this container (and its /tmp) evaporate. \$? defers the
+    # status check to trap-execution time.
+    trap "[ \$? -eq 0 ] || cp /tmp/lock-before.json package-lock.json" EXIT
     rm package-lock.json   # full re-resolve: satisfied-but-stale ranges must move too
     npm install --package-lock-only --before="'"$BEFORE"'" >/dev/null
     node -e "
@@ -44,6 +54,27 @@ docker run "${BASE_ARGS[@]}" \
       }
       if (!changed) console.log(\"   nothing changed — lockfile already at the freshest allowed versions\");
     "
-  '
+  ' 2>&1)"
+update_status=$?
+set -e
+
+[ -n "$update_output" ] && printf '%s\n' "$update_output" >&2
+
+if [ "$update_status" -ne 0 ]; then
+  # Cooldown signature: --before filtered out the versions we need, so npm has
+  # nothing to resolve. Two shapes, both meaning exactly "a dep is pinned to /
+  # ranges into a version published in the last 7 days":
+  #   • ENOVERSIONS ("No versions available") — a package added this week: ALL
+  #     its versions are newer than the cutoff, so the packument is emptied.
+  #   • ETARGET ("No matching version found") — a range whose only satisfying
+  #     versions are newer than the cutoff.
+  # Network blips (ENOTFOUND/ECONNREFUSED/ETIMEDOUT/EAI_AGAIN), disk-full
+  # (ENOSPC), bad JSON (EJSONPARSE), etc. carry their own codes and fall
+  # through to the generic message with npm's error shown above.
+  if printf '%s' "$update_output" | grep -qiE 'ENOVERSIONS|no versions available|ETARGET|notarget|no matching version found'; then
+    die "update failed — lockfile restored untouched. A dep pinned to a version published in the last 7 days (e.g. a package added this week) cannot satisfy the cooldown; retry once it ages past 7 days."
+  fi
+  die "update failed — lockfile restored untouched. See npm's error above for the underlying cause."
+fi
 
 ok "lockfile updated (cooldown honored) — run ./dev/install to apply it"

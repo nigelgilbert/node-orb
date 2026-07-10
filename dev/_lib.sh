@@ -10,15 +10,23 @@ REPO_DIR="$(dirname "$DEV_DIR")"
 
 # Everything per-project derives from the directory name: cache volume,
 # container labels, env-file path. Rename the dir and you get a fresh set.
-PROJECT="$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9_.-]/-/g' -e 's/^[-.]*//')"
+# Sanitization mirrors compose's project-name normalization (lowercase, strip
+# to [a-z0-9_-], trim leading _/-) so the secrets path here and the one
+# docker-compose.yml interpolates from ${COMPOSE_PROJECT_NAME} stay identical.
+PROJECT="$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9_-]//g' -e 's/^[_-]*//')"
+[ -n "$PROJECT" ] || { printf '💥 directory name %s sanitizes to nothing — rename it to something with a-z/0-9\n' "$(basename "$REPO_DIR")" >&2; exit 1; }
 
 # Single source of truth for the base image: the NODE_IMAGE line in the
 # committed root .env (no secrets there — those live in ~/.config/<project>/env).
 # Dev scripts parse it here; docker compose auto-loads .env and feeds it to the
 # Dockerfile as a build arg. dev/bump-node rewrites this one line.
 PIN_FILE="$REPO_DIR/.env"
-IMAGE="$(sed -n 's/^NODE_IMAGE=//p' "$PIN_FILE" | head -n1)"
-[ -n "$IMAGE" ] || { printf '💥 no NODE_IMAGE= line in %s\n' "$PIN_FILE" >&2; exit 1; }
+# Compose interpolates the LAST duplicate key; this helper would take the first.
+# A duplicated pin would silently split dev and prod across two digests, so
+# require exactly one NODE_IMAGE= line — fail loudly on 0 or >1.
+PIN_COUNT="$(grep -c '^NODE_IMAGE=' "$PIN_FILE" 2>/dev/null || true)"
+[ "$PIN_COUNT" = 1 ] || { printf '💥 expected exactly one NODE_IMAGE= line in %s, found %s\n' "$PIN_FILE" "${PIN_COUNT:-0}" >&2; exit 1; }
+IMAGE="$(sed -n 's/^NODE_IMAGE=//p' "$PIN_FILE")"
 
 CACHE_VOLUME="${PROJECT}-npm-cache"
 ENV_FILE="$HOME/.config/$PROJECT/env"
@@ -52,11 +60,69 @@ posture() {
 # --- container plumbing -----------------------------------------------------
 
 # Named npm-cache volume, owned by the non-root `node` user. The chown runs
-# as root but only touches the volume mount point (cheap + idempotent).
+# as root; recursive only when the mount point isn't already node-owned
+# (fresh volumes are root-owned all the way down — a mount-point-only chown
+# leaves npm hitting EACCES on the subdirs).
 ensure_cache_volume() {
+  # Hot path: an existing volume was already chowned to `node` when we first
+  # created it, and that ownership persists. A `docker volume inspect` probe
+  # (one cheap daemon round-trip) lets us skip the ~0.3–2s container start on
+  # every dev/install, dev/update, and dev/shell after the one-time setup.
+  docker volume inspect "$CACHE_VOLUME" >/dev/null 2>&1 && return 0
+  # Cold path only: create the volume and fix ownership. The stat guard keeps
+  # the recursive chown to the case that needs it (fresh volumes are root-owned
+  # all the way down; a mount-point-only chown leaves npm hitting EACCES).
   docker volume create --label "$LABEL" "$CACHE_VOLUME" >/dev/null
   docker run --rm -u root -v "$CACHE_VOLUME:/tmp/.npm" "$IMAGE" \
-    chown node:node /tmp/.npm
+    sh -c '[ "$(stat -c %U /tmp/.npm)" = node ] || chown -R node:node /tmp/.npm'
+}
+
+# Pull a `--net` opt-in out of the arg list (any position, so it composes with
+# pass-through docker args). Sets: net_args, net_posture, pass_args. Parsed
+# here, not positionally in each script — an unconsumed network flag would reach
+# docker run AFTER our `--network none`, and last-flag-wins would silently give
+# the container host networking while the banner still read OFF.
+#
+# In this template `--net` (and its `--network` alias) is a BOOLEAN opt-in: bare
+# = networking ON, nothing else. docker's real --net/--network takes a value
+# (host, bridge, container:…); we offer only all-or-nothing, so every
+# value-carrying spelling is matched and rejected — never passed through:
+#   --net=host / --network=host      (= form)         → rejected
+#   --net host / --network host      (space form)     → rejected, value swallowed
+#
+# Pass `--reject-net` as the first arg (dev/run) to forbid networking flags
+# outright — run is networked by design, so there is nothing to opt into.
+parse_net_args() {
+  local mode=opt_in
+  if [ "${1:-}" = "--reject-net" ]; then mode=reject; shift; fi
+  net_args=(--network none); net_posture="network: OFF"; pass_args=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --net=*|--network=*)
+        if [ "$mode" = reject ]; then
+          die "dev/run always has network — drop the ${1%%=*} flag (run is networked by design)"
+        fi
+        die "network flags take no value here — use bare --net to turn networking ON (got: $1)"
+        ;;
+      --net|--network)
+        # A non-flag token immediately after is a space-separated docker network
+        # value (e.g. `--network host`); swallow it so it can't fall through.
+        local has_value=0
+        if [ "$#" -ge 2 ]; then case "$2" in -*) ;; *) has_value=1;; esac; fi
+        if [ "$mode" = reject ]; then
+          die "dev/run always has network — drop the $1 flag (run is networked by design)"
+        fi
+        if [ "$has_value" = 1 ]; then
+          die "network flags take no value here — use bare --net to turn networking ON (got: $1 $2)"
+        fi
+        net_args=(); net_posture="network: ON (--net)"
+        ;;
+      *)
+        pass_args+=("$1")
+        ;;
+    esac
+    shift
+  done
 }
 
 # The security floor shared by every dev container:

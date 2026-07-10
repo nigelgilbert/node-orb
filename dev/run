@@ -1,23 +1,81 @@
 #!/usr/bin/env bash
 # dev/run — foreground dev server with reload (node --watch, native TS).
-# Network: on. Env: ~/.config/<project>/env via --env-file (run only).
-# Extra args pass through to docker run, e.g.: ./dev/run -p 3000:3000
+# Network: on. Publishes ${HOST_PORT:-3000} → container :3000, on loopback
+#   (127.0.0.1) by default; set BIND_ADDR=0.0.0.0 to expose on the LAN.
+# Env: ~/.config/<project>/env via --env-file (run only).
+# Extra args pass through to docker run, e.g.: ./dev/run -v "$PWD/data:/data"
 source "$(dirname "$0")/_lib.sh"
+
+# run is networked by design, so reject any --net/--network flag up front (and
+# swallow its value) rather than letting it reach docker run — where a stray
+# --net would consume the next token (the image ref) and error confusingly.
+# Sets pass_args (the sanctioned pass-through args) from "$@".
+parse_net_args --reject-net "$@"
 
 env_args=()
 if [ -f "$ENV_FILE" ]; then
+  # Refuse a secrets file other local users could read — on a multi-user host
+  # an accidental 0644 hands every token in it to anyone with a shell. Same
+  # remediation either way: chown yourself / chmod 600. Compose reads this
+  # exact file too but has no preflight hook — it loads a mis-permissioned file
+  # without complaint. This check therefore guards only the ./dev/run path;
+  # keeping it 0600 for the compose path is on the user (see the README note).
+  [ -O "$ENV_FILE" ] || die "secrets file $ENV_FILE is not owned by you — chown it (then: chmod 600 $ENV_FILE)"
+  # BSD stat (macOS) spells octal mode -f %Lp; GNU spells it -c %a.
+  perms="$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")"
+  case "$perms" in
+    *[1-7][0-7]|*[0-7][1-7]) die "secrets file $ENV_FILE is group/world-accessible (mode $perms) — run: chmod 600 $ENV_FILE" ;;
+  esac
+  # docker run --env-file and compose's env_file overlap but don't agree on
+  # everything; validate the intersection so one file means the same in both.
+  # (Behaviors below were confirmed empirically against docker run + compose.)
+  #   - bare NAME (no '='): docker run imports NAME from the HOST env — exactly
+  #     what these containers promise never to see; compose rejects it. → reject.
+  #   - inline '# comment' after an *unquoted* value: compose strips it
+  #     (API_KEY=secret # prod → "secret") but docker run keeps it literally
+  #     ("secret # prod"), so the value silently differs. → reject. Note a '#'
+  #     with no leading space (a#b) is NOT a comment to either parser — both
+  #     keep it — so it stays allowed.
+  #   - quotes: docker run keeps them literally, compose strips them. → warn.
+  #   - leading indentation on a KEY=value line: both parsers trim it and agree
+  #     on the result, so it is accepted.
+  # Report line numbers only, never the offending line: this file holds secrets
+  # and an echoed value (e.g. an inline-comment line) would leak into the
+  # terminal/CI log. `grep -n` prefixes each hit with its line number; strip to
+  # just the numbers so the message points you at the file without printing it.
+  bare_lines="$(grep -nEv '^[[:space:]]*(#|$)' "$ENV_FILE" | grep -Ev '^[0-9]+:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=' | cut -d: -f1 | paste -sd, - || true)"
+  [ -z "$bare_lines" ] || die "bare/malformed line(s) in $ENV_FILE at line(s) $bare_lines — need KEY=value (a bare NAME would import your host env)"
+  inline_lines="$(grep -nE "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^\"']*[[:space:]]#" "$ENV_FILE" | cut -d: -f1 | paste -sd, - || true)"
+  [ -z "$inline_lines" ] || die "inline '# comment' after an unquoted value in $ENV_FILE at line(s) $inline_lines — compose strips it but docker run keeps it literally, so the value would differ; move the comment to its own line or quote the value"
+  ! grep -Eq "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[\"']" "$ENV_FILE" || \
+    warn "quoted value(s) in $ENV_FILE — docker run keeps the quotes literally (compose strips them); drop the quotes"
   env_args=(--env-file "$ENV_FILE")
   env_posture="env: $ENV_FILE"
 else
   env_posture="env: none"
 fi
 
-posture "🚀 running" "network: on" "$env_posture" "user: node" "Ctrl-C stops & removes"
-[ -f "$ENV_FILE" ] || warn "no env file at $ENV_FILE — starting without secrets (create it if the app needs any)"
+posture "🚀 running" "network: on" "$env_posture" "user: node" "port: ${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}→3000" "Ctrl-C stops & removes"
+if [ -f "$ENV_FILE" ]; then
+  # Surface the one gap vs production: this dev server has full, unproxied
+  # egress AND the secrets file — prod caps that combination with the
+  # tinyproxy allowlist. See "Secrets" in the README.
+  warn "secrets loaded with UNCAPPED egress (dev only — prod routes this through the proxy allowlist); keep $ENV_FILE minimal"
+else
+  warn "no env file at $ENV_FILE — starting without secrets (create it if the app needs any)"
+fi
 say "   watching src/ — edits reload automatically"
 
+# PORT is pinned to 3000 in-container so it always matches the published
+# mapping (compose pins it the same way); pick the host side with HOST_PORT.
+# The pin sits after "$@" so pass-through args can't desync it.
+# Authority for the container-side port: DEFAULT_PORT in src/index.ts. Moving
+# the app to a new port means updating that constant, then this pin and the
+# compose mapping/environment to match.
 exec docker run "${BASE_ARGS[@]}" "$TTY_FLAG" \
   --name "${PROJECT}-run-$$" \
+  -p "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000" \
   ${env_args[@]+"${env_args[@]}"} \
-  "$@" \
+  ${pass_args[@]+"${pass_args[@]}"} \
+  -e PORT=3000 \
   "$IMAGE" node --watch src/index.ts

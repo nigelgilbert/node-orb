@@ -1,8 +1,26 @@
-# Production compose — hardened per HARDENING.md §6.
+# Production compose.
 # Build/run: docker compose build && docker compose up
 # The base-image digest comes from .env (NODE_IMAGE=…), auto-loaded by compose.
 # Secrets come from ~/.config/<this-directory-name>/env — same file ./dev/run
 # uses; missing is tolerated (required: false).
+#
+# Egress control is LIVE and the app has NO direct route out:
+#   - `app` sits on an `internal: true` network only. Docker gives an internal
+#     network no gateway, so the app cannot reach the internet at all — verified
+#     (a direct fetch from the app to a non-allowlisted host fails; DNS for
+#     external names SERVFAILs). The tinyproxy sidecar (also on `internal`) with
+#     a domain allowlist (proxy/filter) is the app's only door out.
+#   - Because an `internal: true` network cannot publish ports, the app's port
+#     is exposed to the host by a tiny TCP `forwarder` sidecar that bridges the
+#     `ingress` network (host-facing) to the app on `internal`. The forwarder
+#     holds no secrets and runs no untrusted code — it only pipes bytes.
+#
+# NOTE ON THE ORIGINAL masquerade-off "ingress" trick: shipping the app itself
+# on a bridge network with `enable_ip_masquerade: false` does NOT block egress
+# under Docker Desktop's VM NAT (verified: a direct fetch still returns 200) —
+# the app keeps a working route out and the allowlist is bypassed. The only
+# portable way to actually cut the app's egress is to keep it internal-only and
+# publish through the forwarder.
 
 services:
   app:
@@ -10,11 +28,28 @@ services:
       context: .
       args:
         NODE_IMAGE: ${NODE_IMAGE:?NODE_IMAGE missing — is the .env pin file present?}
+    init: true   # PID 1 that forwards signals — bare `node` as PID 1 ignores
+                 # SIGTERM, so `docker compose stop` hangs 10s then SIGKILLs
     env_file:
       - path: ${HOME}/.config/${COMPOSE_PROJECT_NAME}/env
         required: false
-    ports:
-      - "${HOST_PORT:-3000}:3000"
+    environment:
+      PORT: "3000"   # pinned to match the mapping below; a PORT in the
+                     # env_file would move the app off the published port.
+                     # Authority: DEFAULT_PORT in src/index.ts — if you move
+                     # the port there, update this value and the mapping below.
+      # Force all egress through the proxy sidecar. NODE_USE_ENV_PROXY=1 makes
+      # Node's global fetch honor *_proxy with zero code; SDKs that build their
+      # own undici agents want EnvHttpProxyAgent as the global dispatcher.
+      # Scripts' curl honors https_proxy too.
+      NODE_USE_ENV_PROXY: "1"
+      https_proxy: http://172.31.9.3:8888
+      http_proxy: http://172.31.9.3:8888
+    networks:
+      # Internal-only: no gateway, no route out. Static IP so the proxy's Allow
+      # can pin exactly this app and nothing else on the network.
+      internal:
+        ipv4_address: 172.31.9.2
     # --- hardening: the app gets a read-only world and no privileges -------
     read_only: true
     tmpfs:
@@ -26,45 +61,77 @@ services:
     pids_limit: 128
     mem_limit: 512m
     restart: unless-stopped
-    # To force all egress through the proxy sidecar below, move `app` onto the
-    # internal network (uncomment) and teach the app to honor https_proxy:
-    # either set NODE_USE_ENV_PROXY=1 (zero code, covers global fetch) or use
-    # undici's EnvHttpProxyAgent as global dispatcher (covers SDKs too).
-    # networks: [internal]
-    # environment:
-    #   NODE_USE_ENV_PROXY: 1
-    #   https_proxy: http://proxy:8888
-    #   http_proxy: http://proxy:8888
+    depends_on:
+      - proxy
 
-# --- optional egress-allowlist sidecar (OFF by default) ----------------------
-# Enable when this project holds secrets worth guarding: uncomment the proxy
-# service and the networks block, plus the app's `networks`/`environment`
-# lines above. `internal: true` means the app has NO direct route out — the
-# tinyproxy allowlist becomes the only door (HARDENING.md §2).
-#
-#   proxy:
-#     image: kalaksi/tinyproxy:latest   # pin a digest before relying on it
-#     networks: [internal, egress]
-#     read_only: true
-#     tmpfs: [/tmp]
-#     cap_drop: [ALL]
-#     security_opt: [no-new-privileges:true]
-#     pids_limit: 64
-#     mem_limit: 128m
-#     restart: unless-stopped
-#     volumes:
-#       - ./proxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
-#       - ./proxy/filter:/etc/tinyproxy/filter:ro
-#     healthcheck:
-#       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8888"]
-#       interval: 30s
-#       timeout: 5s
-#       retries: 3
-#
-# The proxy config ships in ./proxy/ — edit proxy/filter (one domain glob per
-# line) to allowlist only what the app truly needs.
-#
-# networks:
-#   internal:
-#     internal: true   # no direct egress for anything on this network
-#   egress: {}
+  # --- egress-allowlist sidecar — the app's only route out ------------------
+  proxy:
+    image: kalaksi/tinyproxy@sha256:fafafc7079ca29c6704564de1353f61d038f2166f09b01d4e460e8e499bf6b57  # tinyproxy 1.11.3
+    networks:
+      # `internal` (static IP) is the only interface tinyproxy listens on — see
+      # Listen in proxy/tinyproxy.conf. `egress` is the route to the internet;
+      # nothing listens on that side, so the proxy is not an open relay reachable
+      # from anywhere but the app on `internal`.
+      internal:
+        ipv4_address: 172.31.9.3
+      egress: {}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    restart: unless-stopped
+    volumes:
+      - ./proxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
+      - ./proxy/filter:/etc/tinyproxy/filter:ro
+    healthcheck:
+      # Plain TCP probe against the internal listen IP (tinyproxy Listens only
+      # there, not on loopback). An HTTP GET straight at tinyproxy earns a 400
+      # (it only speaks proxy requests), so nc is the honest liveness check.
+      test: ["CMD", "sh", "-c", "nc -z 172.31.9.3 8888"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # --- published-port forwarder — host <-> app, no egress-blast surface -----
+  # The app is internal-only and cannot publish a port itself. This socat pipe
+  # bridges the host-facing `ingress` network to the app on `internal`. It runs
+  # no npm/untrusted code and holds no secrets, so giving it a bridge with a
+  # route out costs nothing; the app it forwards to still has none.
+  forwarder:
+    image: alpine/socat@sha256:188fe0a22182f81c16def9d1137930121eaa3023f427164e32c0d2f118f79dd6  # socat 1.8.1.3
+    command: ["-d", "TCP-LISTEN:3000,fork,reuseaddr", "TCP:172.31.9.2:3000"]
+    networks:
+      - ingress
+      - internal
+    ports:
+      # Bound to loopback (127.0.0.1) by default so the secrets-holding process
+      # behind this forwarder is not reachable from the LAN; set BIND_ADDR=0.0.0.0
+      # to expose it deliberately. Container side is the app's DEFAULT_PORT
+      # (src/index.ts); the forwarder listens on the same 3000 and pipes through.
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000"
+    # alpine/socat ships no default USER (would run as container root). socat
+    # binds only unprivileged :3000, so drop to nobody:nogroup — IDs 65534
+    # exist in the pinned image.
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 64m
+    restart: unless-stopped
+    depends_on:
+      - app
+
+networks:
+  internal:
+    internal: true   # no gateway → no direct egress for anything on this network
+    ipam:
+      config:
+        # Fixed subnet so app/proxy get stable IPs the proxy Allow/Listen pin to.
+        - subnet: 172.31.9.0/24
+  egress: {}          # the proxy's route out
+  ingress:            # host-facing bridge for the forwarder's published port.
+    driver_opts:      # masquerade off: the forwarder needs no egress, so deny it
+      com.docker.network.bridge.enable_ip_masquerade: "false"   # one on native Linux (harmless under Docker Desktop, which NATs anyway)

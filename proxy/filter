@@ -1,4 +1,22 @@
-# Egress allowlist — one fnmatch domain glob per line. Keep it minimal.
-# Placeholders; replace with what THIS project's app actually calls.
-api.anthropic.com
-*.discord.com
+# Egress allowlist — one fnmatch glob per line, matched against the parsed
+# HOST only (verified on tinyproxy 1.11.3), never the path or userinfo. So
+# `http://discord.com@evil.com/x` is denied (real host evil.com), and a path
+# like `evil.com/discord.com` is denied too.
+#
+# Anchoring gotchas (fnmatch, no FNM_PATHNAME → `*` also matches dots):
+#   - `*.discord.com` does NOT match the apex `discord.com`; list both shapes.
+#   - `gateway.discord.gg` is a different registered domain from discord.com —
+#     list it explicitly.
+#   - A leading `*` with no dot is DANGEROUS: `*discord.com` would also match
+#     `evildiscord.com`. Prefer exact apexes and `*.<domain>` subdomain globs.
+#
+# Deny-all by default: every example below is commented out, so with
+# FilterDefaultDeny Yes the proxy denies ALL egress until a project opts a
+# domain in. Uncomment/add exactly what THIS project's app calls — and
+# remember an in-process attacker can abuse any allowlisted domain (a Discord
+# webhook is a ready-made exfil channel), so allowlist narrowly and record
+# each entry as an accepted residual risk in your threat model.
+#api.anthropic.com
+#discord.com
+#*.discord.com
+#gateway.discord.gg
