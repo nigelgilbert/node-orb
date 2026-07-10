@@ -49,7 +49,10 @@ check "direct fetch example.org (no proxy)" "BLOCKED" "$direct"
 echo "== 4. a non-app container on the internal net cannot relay =="
 # app is internal-only, so its single network is the internal one.
 INTERNAL_NET=$(docker inspect "$(docker compose ps -q app)" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')
-relay=$(docker run --rm --network "$INTERNAL_NET" busybox:latest sh -c \
+# Digest-pinned like the compose services (see docker-compose.yml) so this
+# verification stays reproducible and free of supply-chain drift.
+BUSYBOX=busybox@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028  # busybox 1.37
+relay=$(docker run --rm --network "$INTERNAL_NET" "$BUSYBOX" sh -c \
   "printf 'GET http://discord.com/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' | nc -w 5 ${PROXY_IP} 8888 | head -1" 2>/dev/null || true)
 check "non-app relay attempt" "403 Access denied" "$relay"
 
