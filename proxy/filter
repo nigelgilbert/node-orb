@@ -10,8 +10,13 @@
 #   - A leading `*` with no dot is DANGEROUS: `*discord.com` would also match
 #     `evildiscord.com`. Prefer exact apexes and `*.<domain>` subdomain globs.
 #
-# Placeholders; replace with what THIS project's app actually calls.
-api.anthropic.com
-discord.com
-*.discord.com
-gateway.discord.gg
+# Deny-all by default: every example below is commented out, so with
+# FilterDefaultDeny Yes the proxy denies ALL egress until a project opts a
+# domain in. Uncomment/add exactly what THIS project's app calls — and
+# remember an in-process attacker can abuse any allowlisted domain (a Discord
+# webhook is a ready-made exfil channel), so allowlist narrowly and record
+# each entry as an accepted residual risk in your threat model.
+#api.anthropic.com
+#discord.com
+#*.discord.com
+#gateway.discord.gg

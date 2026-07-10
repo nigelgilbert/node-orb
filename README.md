@@ -64,9 +64,22 @@ printf 'MY_TOKEN=…\n' > ~/.config/node-orb/env
 chmod 600 ~/.config/node-orb/env
 ```
 
+The `chmod 600` is enforced, not just suggested: `./dev/run` refuses a secrets
+file that is group/world-accessible or owned by someone else. `docker compose`
+reads the same file but has no preflight hook, so keep it `0600` — the
+`dev/run` check is the enforcement point for both.
+
 One dialect note: write plain `KEY=value` lines — no quotes (docker run keeps
 them literally), no bare `KEY` lines (`./dev/run` rejects those; docker would
 import the value from your host env, which these containers must never see).
+
+**Known asymmetry with production:** `./dev/run` is a live-reload server, so
+it has full, unproxied network access *and* loads this secrets file — the
+exact combination production caps with the tinyproxy allowlist. A compromised
+dependency loaded at require time in dev therefore has both your tokens and an
+open path out. Keep secrets out of `~/.config/<project>/env` until the app
+truly needs them locally, and prefer `docker compose up` (egress-capped) when
+exercising secret-holding code paths.
 
 Only `./dev/run` and `docker compose up` read it (`--env-file` / `env_file`).
 `install`/`test`/`shell` get nothing. Missing file is fine — you'll get a
@@ -105,8 +118,9 @@ When the app holds secrets worth guarding, uncomment the `proxy` service and
 allowlist in [proxy/filter](proxy/filter) is the only door. (Its published
 port survives via the un-masqueraded `ingress` network: inbound keeps
 working, outbound doesn't — `internal: true` alone would silently stop
-publishing the port.) Edit the filter to the domains your app actually calls
-— it matches the *full* hostname, so list `discord.com` and `*.discord.com`
+publishing the port.) The filter ships **deny-all** (every example entry
+commented out); uncomment/add the domains your app actually calls — it
+matches the *full* hostname, so list `discord.com` and `*.discord.com`
 separately — and keep `NODE_USE_ENV_PROXY=1` so Node's `fetch` honors the
 proxy (SDKs using undici get it too).
 

@@ -14,6 +14,17 @@ parse_net_args --reject-net "$@"
 
 env_args=()
 if [ -f "$ENV_FILE" ]; then
+  # Refuse a secrets file other local users could read — on a multi-user host
+  # an accidental 0644 hands every token in it to anyone with a shell. Same
+  # remediation either way: chown yourself / chmod 600. Compose reads this
+  # exact file too but has no preflight hook, so this check (and the README
+  # note) is the enforcement point for both consumers.
+  [ -O "$ENV_FILE" ] || die "secrets file $ENV_FILE is not owned by you — chown it (then: chmod 600 $ENV_FILE)"
+  # BSD stat (macOS) spells octal mode -f %Lp; GNU spells it -c %a.
+  perms="$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")"
+  case "$perms" in
+    *[1-7][0-7]|*[0-7][1-7]) die "secrets file $ENV_FILE is group/world-accessible (mode $perms) — run: chmod 600 $ENV_FILE" ;;
+  esac
   # docker run --env-file and compose's env_file overlap but don't agree on
   # everything; validate the intersection so one file means the same in both.
   # (Behaviors below were confirmed empirically against docker run + compose.)
@@ -40,7 +51,14 @@ else
 fi
 
 posture "🚀 running" "network: on" "$env_posture" "user: node" "port: ${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}→3000" "Ctrl-C stops & removes"
-[ -f "$ENV_FILE" ] || warn "no env file at $ENV_FILE — starting without secrets (create it if the app needs any)"
+if [ -f "$ENV_FILE" ]; then
+  # Surface the one gap vs production: this dev server has full, unproxied
+  # egress AND the secrets file — prod caps that combination with the
+  # tinyproxy allowlist. See "Secrets" in the README.
+  warn "secrets loaded with UNCAPPED egress (dev only — prod routes this through the proxy allowlist); keep $ENV_FILE minimal"
+else
+  warn "no env file at $ENV_FILE — starting without secrets (create it if the app needs any)"
+fi
 say "   watching src/ — edits reload automatically"
 
 # PORT is pinned to 3000 in-container so it always matches the published

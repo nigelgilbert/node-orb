@@ -66,8 +66,17 @@ sitting next to the secrets. Bumps are one-line diffs we own.
 
 ## Where the work still lives
 
-The proxy allowlist ships placeholders (`discord.com`, `api.anthropic.com`) —
-trim them to exactly what *your* app calls before relying on it. Global `fetch`
-honors the proxy for free; SDKs that build their own undici transport want
-`EnvHttpProxyAgent`, and websocket clients need an explicit proxy agent. Re-run
-`./proxy/verify-egress.sh` whenever you touch the pinned proxy.
+The proxy allowlist ships **deny-all** — every example entry in `proxy/filter`
+is commented out, so nothing gets out until you opt a domain in. Each domain
+you uncomment is an accepted exfil channel for an in-process attacker (a
+Discord webhook is a ready-made one), so allowlist exactly what *your* app
+calls and nothing more. Global `fetch` honors the proxy for free; SDKs that
+build their own undici transport want `EnvHttpProxyAgent`, and websocket
+clients need an explicit proxy agent. Re-run `./proxy/verify-egress.sh`
+whenever you touch the pinned proxy or the filter.
+
+The dev loop is the accepted gap in rule 6: `./dev/run` needs the network
+(it's a live-reload server) and loads the secrets file, with no proxy in
+between — the exact combination production caps. So keep the secrets file
+minimal (or absent) until the app genuinely needs a token locally, and
+exercise secret-holding paths through `docker compose up` instead.

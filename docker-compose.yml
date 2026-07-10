@@ -111,6 +111,10 @@ services:
       # to expose it deliberately. Container side is the app's DEFAULT_PORT
       # (src/index.ts); the forwarder listens on the same 3000 and pipes through.
       - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000"
+    # alpine/socat ships no default USER (would run as container root). socat
+    # binds only unprivileged :3000, so drop to nobody:nogroup — IDs 65534
+    # exist in the pinned image.
+    user: "65534:65534"
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

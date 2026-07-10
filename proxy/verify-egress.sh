@@ -14,6 +14,12 @@ cd "$(dirname "$0")/.."
 APP_IP=172.31.9.2
 PROXY_IP=172.31.9.3
 PORT="${HOST_PORT:-3000}"
+# The allowlisted control domain comes from the deployed filter itself (first
+# glob-free, non-comment entry), so these checks track whatever a project opts
+# in. The template ships the filter deny-all — every line commented out — in
+# which case ALLOWED is empty and the allow-path checks are skipped: with no
+# allowlisted domain there is no allow path to exercise.
+ALLOWED="$(grep -Ev '^[[:space:]]*(#|$)' proxy/filter | grep -v '[*?[]' | head -1 | tr -d '[:space:]' || true)"
 fails=0
 pass() { printf '  PASS  %s\n' "$1"; }
 fail() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
@@ -37,8 +43,12 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 "http://127.0.0.1:${P
 check "host -> 127.0.0.1:${PORT}" "200" "HTTP ${code}"
 
 echo "== 2. app egress: allowlisted via proxy succeeds, non-allowlisted denied =="
-allowed=$(docker compose exec -T app node -e 'fetch("https://discord.com/robots.txt",{signal:AbortSignal.timeout(12000)}).then(r=>console.log("HTTP",r.status)).catch(e=>console.log("ERR",e.cause?.code||e.message))')
-check "proxy -> allowlisted discord.com" "HTTP" "$allowed"
+if [ -n "$ALLOWED" ]; then
+  allowed=$(docker compose exec -T app node -e 'fetch("https://'"$ALLOWED"'/robots.txt",{signal:AbortSignal.timeout(12000)}).then(r=>console.log("HTTP",r.status)).catch(e=>console.log("ERR",e.cause?.code||e.message))')
+  check "proxy -> allowlisted ${ALLOWED}" "HTTP" "$allowed"
+else
+  echo "  SKIP  filter is deny-all (no allowlisted domain) — no allow path to exercise"
+fi
 denied=$(docker compose exec -T app node -e 'fetch("https://example.org/",{signal:AbortSignal.timeout(12000)}).then(r=>console.log("REACHED",r.status)).catch(e=>console.log("DENIED"))')
 check "proxy -> non-allowlisted example.org" "DENIED" "$denied"
 
@@ -53,7 +63,7 @@ INTERNAL_NET=$(docker inspect "$(docker compose ps -q app)" --format '{{range $k
 # verification stays reproducible and free of supply-chain drift.
 BUSYBOX=busybox@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028  # busybox 1.37
 relay=$(docker run --rm --network "$INTERNAL_NET" "$BUSYBOX" sh -c \
-  "printf 'GET http://discord.com/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' | nc -w 5 ${PROXY_IP} 8888 | head -1" 2>/dev/null || true)
+  "printf 'GET http://example.org/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' | nc -w 5 ${PROXY_IP} 8888 | head -1" 2>/dev/null || true)
 check "non-app relay attempt" "403 Access denied" "$relay"
 
 echo "== 5. bypass denial tests against deployed tinyproxy (from app IP ${APP_IP}) =="
@@ -66,12 +76,20 @@ probe() { # probe <request-line>
     s.on("error",e=>console.log("ERR",e.code)); s.on("close",()=>console.log((b.split("\r\n")[0]||"none")));
   ' "$1"
 }
-ctrl=$(probe 'GET http://discord.com/ HTTP/1.1')
-if printf '%s' "$ctrl" | grep -q '403'; then fail "control allowed GET discord.com (unexpectedly filtered) -> $ctrl"; else pass "control allowed GET discord.com -> $ctrl"; fi
-check "userinfo         GET discord.com@example.org"  "403 Filtered" "$(probe 'GET http://discord.com@example.org/ HTTP/1.1')"
-check "subdomain-suffix GET discord.com.example.org"  "403 Filtered" "$(probe 'GET http://discord.com.example.org/ HTTP/1.1')"
-check "CONNECT          example.org:443"              "403 Filtered" "$(probe 'CONNECT example.org:443 HTTP/1.1')"
-check "CONNECT userinfo discord.com@example.org:443"  "403 Filtered" "$(probe 'CONNECT discord.com@example.org:443 HTTP/1.1')"
+# The trick probes dress evil hosts up in an allowlisted-looking prefix; when
+# the filter is deny-all there is no allowlisted name to spoof, so a stand-in
+# keeps the host-parsing checks running (everything must be filtered anyway).
+SPOOF="${ALLOWED:-allowed.example}"
+if [ -n "$ALLOWED" ]; then
+  ctrl=$(probe "GET http://${ALLOWED}/ HTTP/1.1")
+  if printf '%s' "$ctrl" | grep -q '403'; then fail "control allowed GET ${ALLOWED} (unexpectedly filtered) -> $ctrl"; else pass "control allowed GET ${ALLOWED} -> $ctrl"; fi
+else
+  echo "  SKIP  allowed-control probe — filter is deny-all"
+fi
+check "userinfo         GET ${SPOOF}@example.org"  "403 Filtered" "$(probe "GET http://${SPOOF}@example.org/ HTTP/1.1")"
+check "subdomain-suffix GET ${SPOOF}.example.org"  "403 Filtered" "$(probe "GET http://${SPOOF}.example.org/ HTTP/1.1")"
+check "CONNECT          example.org:443"           "403 Filtered" "$(probe 'CONNECT example.org:443 HTTP/1.1')"
+check "CONNECT userinfo ${SPOOF}@example.org:443"  "403 Filtered" "$(probe "CONNECT ${SPOOF}@example.org:443 HTTP/1.1")"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL CHECKS PASSED"; else echo "${fails} CHECK(S) FAILED"; exit 1; fi
