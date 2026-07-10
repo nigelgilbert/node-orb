@@ -53,6 +53,15 @@ if (import.meta.main) {
   // period, so a slow client can't turn a clean SIGTERM into a SIGKILL.
   const SHUTDOWN_TIMEOUT_MS = 5000;
   process.once("SIGTERM", () => {
+    server.closeIdleConnections();
+    const forceClose = setTimeout(() => {
+      server.closeAllConnections();
+    }, SHUTDOWN_TIMEOUT_MS);
+    // Don't let the pending timer keep the loop alive once close() finishes.
+    forceClose.unref();
+
+    // Arm the timer before close() so `forceClose` is guaranteed initialized
+    // when the (always-async) close callback clears it — no TDZ window.
     server.close((err) => {
       clearTimeout(forceClose);
       if (err) {
@@ -61,12 +70,6 @@ if (import.meta.main) {
       }
       process.exit(0);
     });
-    server.closeIdleConnections();
-    const forceClose = setTimeout(() => {
-      server.closeAllConnections();
-    }, SHUTDOWN_TIMEOUT_MS);
-    // Don't let the pending timer keep the loop alive once close() finishes.
-    forceClose.unref();
   });
 }
 
