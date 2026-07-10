@@ -100,6 +100,18 @@ test("an in-flight request at SIGTERM time still receives its response", async (
   sock.write(`GET / HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n`);
   child.kill("SIGTERM");
 
+  // Gate on the body actually landing (or the socket ending) rather than racing
+  // the last 'data' event against child exit — otherwise the assertions below
+  // can fire before the final chunk is appended to `response`.
+  await new Promise<void>((res) => {
+    const done = () => {
+      if (/HTTP\/1\.1 200/.test(response) && /Hello from test/.test(response)) res();
+    };
+    sock.on("data", done);
+    sock.once("end", () => res());
+    done(); // in case the full response already arrived synchronously
+  });
+
   const { code } = await waitForExit(child);
   sock.destroy();
 
