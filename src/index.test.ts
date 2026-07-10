@@ -1,21 +1,40 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { connect } from "node:net";
+import { connect, createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { greeting, resolvePort } from "./index.ts";
 
 const ENTRY = fileURLToPath(new URL("./index.ts", import.meta.url));
 
-// Spawn the real server on an ephemeral port and wait until it's listening.
-function startServer(): Promise<{
+// Ask the OS for a free port, then release it so the child can bind it. The
+// strict parser rejects PORT=0, so the child can't self-allocate — we allocate
+// out-of-band and hand it a concrete number. Small TOCTOU window between close
+// and the child's bind, but far tighter than a blind random high-port pick
+// (which collides with whatever CI already has bound in that range).
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const addr = probe.address();
+      if (addr === null || typeof addr === "string") {
+        probe.close(() => reject(new Error("could not determine free port")));
+        return;
+      }
+      const { port } = addr;
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+// Spawn the real server on a free port and wait until it's listening.
+async function startServer(): Promise<{
   child: ReturnType<typeof spawn>;
   port: number;
 }> {
+  const port = await freePort();
   return new Promise((resolve, reject) => {
-    // The strict parser rejects PORT=0, so pick a random high port instead and
-    // confirm the server bound it via the listen banner.
-    const port = 20000 + Math.floor(Math.random() * 20000);
     const child = spawn(process.execPath, [ENTRY], {
       env: { ...process.env, PORT: String(port), GREETING: "Hello from test" },
       stdio: ["ignore", "pipe", "inherit"],
